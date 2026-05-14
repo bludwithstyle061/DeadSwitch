@@ -49,7 +49,6 @@ const L = {
   shadow: "0 28px 80px rgba(23,32,48,0.12)",
 };
 
-// Chain → supported tokens mapping
 const CHAIN_TOKENS = {
   Ethereum:  ["ETH", "USDC", "USDT"],
   Base:      ["ETH", "USDC", "USDT"],
@@ -77,17 +76,60 @@ function statusMeta(status, t) {
   return map[status] || map.active;
 }
 
+/* ── NEW LOGO — CONCEPT A: PULSE TOGGLE ─────────────────────── */
 function DSLogo({ size = 34, t }) {
+  const s = size;
+  const cx = s * 0.5;
+  const cy = s * 0.5;
+  const pillW = s * 0.72;
+  const pillH = s * 0.33;
+  const pillX = cx - pillW / 2;
+  const pillY = cy - pillH / 2;
+  const r = pillH / 2;
+  const dotR = r * 0.72;
+  const leftDot = pillX + r;
+  const rightDot = pillX + pillW - r;
+
+  const pulseX2 = pillX - 2;
+
+  const p1x = 0,                                         p1y = cy;
+  const p2x = (pulseX2) * 0.35,                          p2y = cy;
+  const p3x = (pulseX2) * 0.52,                          p3y = cy - s * 0.22;
+  const p4x = (pulseX2) * 0.68,                          p4y = cy + s * 0.22;
+  const p5x = (pulseX2) * 0.84,                          p5y = cy;
+  const p6x = pulseX2,                                   p6y = cy;
+
+  const flatX1 = pillX + pillW + 2;
+  const flatX2 = s;
+
   return (
-    <div style={{ width: size, height: size, position: "relative", display: "grid", placeItems: "center" }}>
-      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <path d="M24 3.8L43.5 24L24 44.2L4.5 24L24 3.8Z" fill={t.bg} stroke={t.borderUp} strokeWidth="1.6" />
-        <path d="M16.5 15.8H25.7C30.3 15.8 33.9 19.4 33.9 24C33.9 28.6 30.3 32.2 25.7 32.2H16.5V15.8Z" stroke={t.text} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M16.5 24H29.2" stroke={t.accent} strokeWidth="2.8" strokeLinecap="round" />
-        <path d="M27.4 20.3L31.2 24L27.4 27.7" stroke={t.accent} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M11.8 11.6L36.2 36.4" stroke={t.accent} strokeWidth="1.4" strokeLinecap="round" opacity="0.45" />
+    <div style={{ width: size, height: size, position: "relative", display: "grid", placeItems: "center", flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${s} ${s}`} fill="none" aria-hidden="true">
+        {/* toggle pill */}
+        <rect
+          x={pillX} y={pillY} width={pillW} height={pillH} rx={r}
+          stroke={t.accent} strokeWidth={s * 0.055}
+        />
+        {/* left dot — off */}
+        <circle cx={leftDot} cy={cy} r={dotR} fill={t.accent} opacity="0.2" />
+        {/* right dot — on */}
+        <circle cx={rightDot} cy={cy} r={dotR * 1.05} fill={t.accent} />
+        <circle cx={rightDot} cy={cy} r={dotR * 1.6} fill={t.accent} opacity="0.12" />
+        {/* pulse signal coming in from the left */}
+        <polyline
+          points={`${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y} ${p4x},${p4y} ${p5x},${p5y} ${p6x},${p6y}`}
+          stroke={t.accent} strokeWidth={s * 0.048}
+          strokeLinecap="round" strokeLinejoin="round"
+        />
+        {/* flatline going out to the right */}
+        <line
+          x1={flatX1} y1={cy} x2={flatX2} y2={cy}
+          stroke={t.accent} strokeWidth={s * 0.048}
+          strokeLinecap="round" opacity="0.35"
+        />
       </svg>
-      <span style={{ position: "absolute", inset: -4, borderRadius: 18, boxShadow: `0 0 34px ${t.accent}24`, pointerEvents: "none" }} />
+      {/* subtle glow */}
+      <span style={{ position: "absolute", inset: -4, borderRadius: 18, boxShadow: `0 0 28px ${t.accent}20`, pointerEvents: "none" }} />
     </div>
   );
 }
@@ -122,7 +164,6 @@ function ProgressBar({ remaining, days, t }) {
   );
 }
 
-// ── AUTH SCREEN ──────────────────────────────────────────────────
 function AuthScreen({ t }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
@@ -278,7 +319,6 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
         <div style={{ minWidth: 0 }}>
           <StatusPill status={sw.status} t={t} />
           <h3 style={{ color: t.text, fontSize: 17, lineHeight: 1.2, margin: "12px 0 4px", fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.label}</h3>
-          {/* Token + chain badge */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             {sw.token && (
               <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em", border: `1px solid ${t.accent}30` }}>
@@ -325,7 +365,6 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
   );
 }
 
-// ── SWITCH MODAL (restructured with token selector) ───────────────
 function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
   const [form, setForm] = useState({
     label:       initialSwitch?.label       || "",
@@ -342,7 +381,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  // When chain changes, reset token to first available
   function handleChainChange(chain) {
     const tokens = CHAIN_TOKENS[chain];
     setForm((prev) => ({ ...prev, chain, token: tokens[0] }));
@@ -350,7 +388,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 
   const availableTokens = CHAIN_TOKENS[form.chain] || [];
   const ok = form.label.trim() && form.destination.trim() && Number(form.days) > 0 && (form.send_all || form.amount);
-
   const input = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 13px", outline: "none", fontSize: 14 };
   const labelStyle = { color: t.textMuted, display: "block", fontSize: 11, letterSpacing: "0.12em", fontWeight: 850, margin: "16px 0 7px" };
 
@@ -363,8 +400,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.70)", backdropFilter: "blur(18px)", display: "grid", placeItems: "center", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto", borderRadius: 22, border: `1px solid ${t.borderUp}`, background: t.surface, boxShadow: t.shadow, padding: 24, position: "relative" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "22px 22px 0 0", background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
-
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 4 }}>
           <div>
             <p style={{ color: t.accent, fontSize: 11, letterSpacing: "0.14em", fontWeight: 850, margin: 0 }}>{initialSwitch ? "EDIT PLAN" : "NEW BACKUP PLAN"}</p>
@@ -373,11 +408,9 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           <IconButton onClick={onClose} title="Close" t={t}><X size={15} /></IconButton>
         </div>
 
-        {/* Label */}
         <label style={labelStyle}>PLAN LABEL</label>
         <input style={input} value={form.label} placeholder="e.g. Emergency recovery" onChange={(e) => set("label", e.target.value)} />
 
-        {/* Timer */}
         <label style={labelStyle}>CHECK-IN TIMER</label>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 7 }}>
           {TIMER_PRESETS.map((days) => (
@@ -388,7 +421,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
         </div>
         <input style={{ ...input, marginTop: 8 }} type="number" min="1" max="3650" value={form.days} placeholder="Custom days" onChange={(e) => set("days", e.target.value)} />
 
-        {/* Chain */}
         <label style={labelStyle}>CHAIN</label>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7 }}>
           {CHAINS.map((chain) => (
@@ -398,7 +430,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           ))}
         </div>
 
-        {/* Token — auto-updates based on chain */}
         <label style={labelStyle}>ASSET TO SEND</label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {availableTokens.map((token) => (
@@ -408,7 +439,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           ))}
         </div>
 
-        {/* Amount — send all toggle */}
         <label style={labelStyle}>AMOUNT</label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
           <button onClick={() => set("send_all", true)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${form.send_all ? t.accent : t.border}`, background: form.send_all ? t.accentLow : t.bg, color: form.send_all ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13 }}>
@@ -422,19 +452,15 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           <input style={input} type="number" min="0" step="any" value={form.amount} placeholder={`Amount in ${form.token}`} onChange={(e) => set("amount", e.target.value)} />
         )}
 
-        {/* Destination wallet */}
         <label style={labelStyle}>BACKUP WALLET ADDRESS</label>
         <input style={{ ...input, fontFamily: "'DM Mono', monospace" }} value={form.destination} placeholder="0x..." onChange={(e) => set("destination", e.target.value)} />
 
-        {/* Alert email */}
         <label style={labelStyle}>ALERT EMAIL</label>
         <input style={input} type="email" value={form.email} placeholder="you@example.com (get warned 7 days before)" onChange={(e) => set("email", e.target.value)} />
 
-        {/* Personal message */}
         <label style={labelStyle}>PERSONAL MESSAGE TO RECIPIENT</label>
         <textarea style={{ ...input, minHeight: 80, lineHeight: 1.6, resize: "vertical" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
 
-        {/* Buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginTop: 22 }}>
           <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: `1px solid ${t.border}`, background: "transparent", color: t.textSub, cursor: "pointer", fontWeight: 750 }}>Cancel</button>
           <button onClick={submit} style={{ padding: 13, borderRadius: 12, border: `1px solid ${ok ? t.accent : t.border}`, background: ok ? t.text : "transparent", color: ok ? t.bg : t.textMuted, cursor: ok ? "pointer" : "default", fontWeight: 850 }}>
@@ -490,7 +516,6 @@ function HowItWorksModal({ onClose, onCreateClick, t }) {
   );
 }
 
-// ── MAIN APP ─────────────────────────────────────────────────────
 export default function DeadSwitch() {
   const [dark, setDark] = useState(false);
   const [session, setSession] = useState(undefined);
