@@ -26,50 +26,40 @@ import {
 } from "lucide-react";
 
 const D = {
-  bg: "#07080D",
-  bg2: "#0D1018",
-  surface: "rgba(18, 22, 32, 0.78)",
-  surfaceUp: "rgba(27, 33, 47, 0.82)",
-  panel: "rgba(11, 13, 20, 0.76)",
-  border: "rgba(255,255,255,0.08)",
-  borderUp: "rgba(255,255,255,0.16)",
-  text: "#F4F7FB",
-  textSub: "#A9B1C1",
-  textMuted: "#667085",
-  accent: "#00D4A8",
-  accent2: "#7C8CFF",
-  accentLow: "rgba(0,212,168,0.10)",
-  accentMid: "rgba(0,212,168,0.18)",
-  warn: "#F4B740",
-  warnLow: "rgba(244,183,64,0.11)",
-  danger: "#F36B7F",
-  dangerLow: "rgba(243,107,127,0.12)",
+  bg: "#07080D", bg2: "#0D1018",
+  surface: "rgba(18, 22, 32, 0.78)", surfaceUp: "rgba(27, 33, 47, 0.82)",
+  panel: "rgba(11, 13, 20, 0.76)", border: "rgba(255,255,255,0.08)",
+  borderUp: "rgba(255,255,255,0.16)", text: "#F4F7FB", textSub: "#A9B1C1",
+  textMuted: "#667085", accent: "#00D4A8", accent2: "#7C8CFF",
+  accentLow: "rgba(0,212,168,0.10)", accentMid: "rgba(0,212,168,0.18)",
+  warn: "#F4B740", warnLow: "rgba(244,183,64,0.11)",
+  danger: "#F36B7F", dangerLow: "rgba(243,107,127,0.12)",
   shadow: "0 28px 90px rgba(0,0,0,0.45)",
 };
 
 const L = {
-  bg: "#F6F7F4",
-  bg2: "#EAEEE8",
-  surface: "rgba(255,255,255,0.82)",
-  surfaceUp: "rgba(244,246,242,0.95)",
-  panel: "rgba(255,255,255,0.72)",
-  border: "rgba(11,19,32,0.09)",
-  borderUp: "rgba(11,19,32,0.16)",
-  text: "#111827",
-  textSub: "#4E5A6D",
-  textMuted: "#8B95A7",
-  accent: "#008F73",
-  accent2: "#4657D8",
-  accentLow: "rgba(0,143,115,0.09)",
-  accentMid: "rgba(0,143,115,0.16)",
-  warn: "#B7791F",
-  warnLow: "rgba(183,121,31,0.10)",
-  danger: "#C8354B",
-  dangerLow: "rgba(200,53,75,0.10)",
+  bg: "#F6F7F4", bg2: "#EAEEE8",
+  surface: "rgba(255,255,255,0.82)", surfaceUp: "rgba(244,246,242,0.95)",
+  panel: "rgba(255,255,255,0.72)", border: "rgba(11,19,32,0.09)",
+  borderUp: "rgba(11,19,32,0.16)", text: "#111827", textSub: "#4E5A6D",
+  textMuted: "#8B95A7", accent: "#008F73", accent2: "#4657D8",
+  accentLow: "rgba(0,143,115,0.09)", accentMid: "rgba(0,143,115,0.16)",
+  warn: "#B7791F", warnLow: "rgba(183,121,31,0.10)",
+  danger: "#C8354B", dangerLow: "rgba(200,53,75,0.10)",
   shadow: "0 28px 80px rgba(23,32,48,0.12)",
 };
 
-const CHAINS = ["Ethereum", "Base", "Kite", "Polygon", "Arbitrum", "Optimism"];
+// Chain → supported tokens mapping
+const CHAIN_TOKENS = {
+  Ethereum:  ["ETH", "USDC", "USDT"],
+  Base:      ["ETH", "USDC", "USDT"],
+  Kite:      ["KITE", "USDC"],
+  Polygon:   ["MATIC", "USDC", "USDT"],
+  Arbitrum:  ["ETH", "USDC", "USDT"],
+  Optimism:  ["ETH", "USDC", "USDT"],
+};
+
+const CHAINS = Object.keys(CHAIN_TOKENS);
 const TIMER_PRESETS = [2, 5, 30, 60, 90, 180];
 
 function truncateWallet(value = "") {
@@ -79,10 +69,10 @@ function truncateWallet(value = "") {
 
 function statusMeta(status, t) {
   const map = {
-    active: { label: "Watching", color: t.accent, bg: t.accentLow, Icon: Radar },
-    warning: { label: "Deadline close", color: t.warn, bg: t.warnLow, Icon: AlertTriangle },
-    paused: { label: "Paused", color: t.textMuted, bg: t.surfaceUp, Icon: Pause },
-    triggered: { label: "Triggered", color: t.danger, bg: t.dangerLow, Icon: Zap },
+    active:    { label: "Watching",       color: t.accent,    bg: t.accentLow,  Icon: Radar },
+    warning:   { label: "Deadline close", color: t.warn,      bg: t.warnLow,    Icon: AlertTriangle },
+    paused:    { label: "Paused",         color: t.textMuted, bg: t.surfaceUp,  Icon: Pause },
+    triggered: { label: "Triggered",      color: t.danger,    bg: t.dangerLow,  Icon: Zap },
   };
   return map[status] || map.active;
 }
@@ -141,11 +131,7 @@ function AuthScreen({ t }) {
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
 
-  const input = {
-    width: "100%", border: `1px solid ${t.border}`, background: t.bg,
-    color: t.text, borderRadius: 12, padding: "12px 14px",
-    outline: "none", fontSize: 14, boxSizing: "border-box",
-  };
+  const input = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 14px", outline: "none", fontSize: 14, boxSizing: "border-box" };
 
   async function handleSignIn() {
     if (!email || !password) return setError("Please enter email and password");
@@ -168,10 +154,7 @@ function AuthScreen({ t }) {
   async function handleMagicLink() {
     if (!email) return setError("Please enter your email");
     setLoading(true); setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    });
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
     if (error) setError(error.message);
     else setMessage("Magic link sent! Check your email and click the link to sign in.");
     setLoading(false);
@@ -185,18 +168,14 @@ function AuthScreen({ t }) {
         button, input { font-family: 'DM Sans', sans-serif; }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
-
       <div style={{ width: "100%", maxWidth: 420, animation: "fadeUp 0.4s ease" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 32 }}>
           <DSLogo size={52} t={t} />
           <h1 style={{ color: t.text, fontSize: 24, fontWeight: 900, margin: "14px 0 4px", letterSpacing: "-0.03em" }}>DeadSwitch</h1>
           <p style={{ color: t.textMuted, fontSize: 13, margin: 0 }}>Your crypto backup agent</p>
         </div>
-
         <div style={{ background: t.surface, border: `1px solid ${t.borderUp}`, borderRadius: 22, padding: 28, boxShadow: t.shadow, position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
-
-          {/* Tabs */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 24, background: t.bg, borderRadius: 12, padding: 4 }}>
             {[["signin", "Sign In"], ["signup", "Sign Up"], ["magic", "Magic Link"]].map(([m, label]) => (
               <button key={m} onClick={() => { setMode(m); setError(null); setMessage(null); }} style={{ padding: "8px 0", borderRadius: 9, border: "none", background: mode === m ? t.surface : "transparent", color: mode === m ? t.text : t.textMuted, fontWeight: mode === m ? 800 : 600, fontSize: 12, cursor: "pointer", transition: "all 0.2s", boxShadow: mode === m ? "0 2px 8px rgba(0,0,0,0.12)" : "none" }}>
@@ -204,7 +183,6 @@ function AuthScreen({ t }) {
               </button>
             ))}
           </div>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
               <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>EMAIL</label>
@@ -213,38 +191,27 @@ function AuthScreen({ t }) {
             {mode !== "magic" && (
               <div>
                 <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>PASSWORD</label>
-                <input style={input} type="password" placeholder={mode === "signup" ? "Min. 6 characters" : "Your password"} value={password} onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (mode === "signin" ? handleSignIn() : handleSignUp())}
-                />
+                <input style={input} type="password" placeholder={mode === "signup" ? "Min. 6 characters" : "Your password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (mode === "signin" ? handleSignIn() : handleSignUp())} />
               </div>
             )}
           </div>
-
           {error && <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.dangerLow, border: `1px solid ${t.danger}30`, color: t.danger, fontSize: 13 }}>{error}</div>}
           {message && <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.accentLow, border: `1px solid ${t.accent}30`, color: t.accent, fontSize: 13 }}>{message}</div>}
-
-          <button
-            onClick={mode === "signin" ? handleSignIn : mode === "signup" ? handleSignUp : handleMagicLink}
-            style={{ width: "100%", marginTop: 20, padding: "13px 0", background: t.text, border: "none", borderRadius: 13, color: t.bg, fontSize: 14, fontWeight: 900, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, transition: "opacity 0.2s", letterSpacing: "-0.01em" }}
-          >
+          <button onClick={mode === "signin" ? handleSignIn : mode === "signup" ? handleSignUp : handleMagicLink} style={{ width: "100%", marginTop: 20, padding: "13px 0", background: t.text, border: "none", borderRadius: 13, color: t.bg, fontSize: 14, fontWeight: 900, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, transition: "opacity 0.2s", letterSpacing: "-0.01em" }}>
             {loading ? "Please wait..." : mode === "signin" ? "Sign in →" : mode === "signup" ? "Create account →" : "Send magic link →"}
           </button>
-
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0" }}>
             <div style={{ flex: 1, height: 1, background: t.border }} />
             <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700 }}>OR</span>
             <div style={{ flex: 1, height: 1, background: t.border }} />
           </div>
-
           <p style={{ color: t.textMuted, fontSize: 13, textAlign: "center", margin: 0 }}>
             {mode === "signin" ? <>No account? <button onClick={() => { setMode("signup"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: t.accent, fontWeight: 800, cursor: "pointer", fontSize: 13, padding: 0 }}>Sign up</button></> :
              mode === "signup" ? <>Already have an account? <button onClick={() => { setMode("signin"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: t.accent, fontWeight: 800, cursor: "pointer", fontSize: 13, padding: 0 }}>Sign in</button></> :
              <>Remember your password? <button onClick={() => { setMode("signin"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: t.accent, fontWeight: 800, cursor: "pointer", fontSize: 13, padding: 0 }}>Sign in</button></>}
           </p>
         </div>
-        <p style={{ color: t.textMuted, fontSize: 11, textAlign: "center", marginTop: 20, fontFamily: "'DM Mono', monospace" }}>
-          DEADSWITCH · Built for recovery and peace of mind
-        </p>
+        <p style={{ color: t.textMuted, fontSize: 11, textAlign: "center", marginTop: 20, fontFamily: "'DM Mono', monospace" }}>DEADSWITCH · Built for recovery and peace of mind</p>
       </div>
     </div>
   );
@@ -276,7 +243,7 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
             <p style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", margin: 0 }}>CURRENT PLAN</p>
             <h2 style={{ color: t.text, fontSize: isMobile ? 22 : 30, lineHeight: 1, margin: "10px 0 8px", letterSpacing: "-0.035em" }}>{nextSwitch ? nextSwitch.label : "No plan yet"}</h2>
             <p style={{ color: t.textSub, fontSize: 12, margin: 0, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {nextSwitch ? `${nextSwitch.chain} -> ${truncateWallet(nextSwitch.destination)}` : "Create a backup plan to start watching"}
+              {nextSwitch ? `${nextSwitch.chain} · ${nextSwitch.token || "—"} → ${truncateWallet(nextSwitch.destination)}` : "Create a backup plan to start watching"}
             </p>
           </div>
           <div style={{ borderRadius: 18, background: t.accentLow, border: `1px solid ${t.accent}30`, padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: isMobile ? 110 : 0 }}>
@@ -310,8 +277,26 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
         <div style={{ minWidth: 0 }}>
           <StatusPill status={sw.status} t={t} />
-          <h3 style={{ color: t.text, fontSize: 17, lineHeight: 1.2, margin: "12px 0 6px", fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.label}</h3>
-          <p style={{ color: t.textSub, fontSize: 12, margin: 0, fontFamily: "'DM Mono', monospace" }}>{`${sw.chain} -> ${truncateWallet(sw.destination)}`}</p>
+          <h3 style={{ color: t.text, fontSize: 17, lineHeight: 1.2, margin: "12px 0 4px", fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.label}</h3>
+          {/* Token + chain badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            {sw.token && (
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em", border: `1px solid ${t.accent}30` }}>
+                {sw.token}
+              </span>
+            )}
+            {sw.send_all && (
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", border: `1px solid ${t.border}` }}>
+                100% of balance
+              </span>
+            )}
+            {!sw.send_all && sw.amount && (
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>
+                {sw.amount} {sw.token}
+              </span>
+            )}
+          </div>
+          <p style={{ color: t.textSub, fontSize: 12, margin: 0, fontFamily: "'DM Mono', monospace" }}>{`${sw.chain} → ${truncateWallet(sw.destination)}`}</p>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <p style={{ color: meta.color, fontSize: 28, lineHeight: 1, margin: 0, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>{sw.remaining}</p>
@@ -319,20 +304,19 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
         </div>
       </div>
       <div style={{ margin: "16px 0" }}><ProgressBar remaining={sw.remaining} days={sw.days} t={t} /></div>
-      <div style={{ minHeight: 54, padding: 13, borderRadius: 14, border: `1px solid ${t.border}`, background: t.bg }}>
-        <p style={{ color: t.textSub, fontSize: 13, lineHeight: 1.6, margin: 0 }}>{sw.note ? `"${sw.note}"` : "No instructions added yet."}</p>
+      <div style={{ minHeight: 48, padding: 13, borderRadius: 14, border: `1px solid ${t.border}`, background: t.bg }}>
+        <p style={{ color: t.textSub, fontSize: 13, lineHeight: 1.6, margin: 0 }}>{sw.note ? `"${sw.note}"` : "No personal message added."}</p>
       </div>
       {sw.email && (
         <div style={{ display: "flex", alignItems: "center", gap: 7, color: t.textMuted, fontSize: 11, marginTop: 12, fontFamily: "'DM Mono', monospace" }}>
-          <Mail size={12} />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.email}</span>
+          <Mail size={12} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.email}</span>
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: sw.email ? "1fr 38px 38px 38px 38px" : "1fr 38px 38px 38px", gap: 8, marginTop: 16 }}>
         <button onClick={() => onCheckin(sw.id)} style={{ border: `1px solid ${t.accent}36`, background: t.accentLow, color: t.accent, borderRadius: 11, fontWeight: 850, fontSize: 12, letterSpacing: "0.04em", cursor: "pointer" }}>CHECK IN</button>
         {sw.email && <IconButton onClick={() => onAlert(sw)} title="Send warning email" t={t} tone="warn"><Mail size={15} /></IconButton>}
         <IconButton onClick={() => onEdit(sw)} title="Edit switch" t={t}><Pencil size={15} /></IconButton>
-        <IconButton onClick={() => onPause(sw.id)} title={sw.status === "paused" ? "Resume switch" : "Pause switch"} t={t}>
+        <IconButton onClick={() => onPause(sw.id)} title={sw.status === "paused" ? "Resume" : "Pause"} t={t}>
           {sw.status === "paused" ? <Play size={15} /> : <Pause size={15} />}
         </IconButton>
         <IconButton onClick={() => onCancel(sw)} title="Cancel switch" t={t} tone="danger"><X size={15} /></IconButton>
@@ -341,15 +325,32 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
   );
 }
 
+// ── SWITCH MODAL (restructured with token selector) ───────────────
 function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
   const [form, setForm] = useState({
-    label: initialSwitch?.label || "", days: initialSwitch?.days || 30,
-    destination: initialSwitch?.destination || "", chain: initialSwitch?.chain || "Ethereum",
-    note: initialSwitch?.note || "", email: initialSwitch?.email || "",
+    label:       initialSwitch?.label       || "",
+    days:        initialSwitch?.days        || 30,
+    destination: initialSwitch?.destination || "",
+    chain:       initialSwitch?.chain       || "Ethereum",
+    token:       initialSwitch?.token       || "ETH",
+    send_all:    initialSwitch?.send_all    ?? true,
+    amount:      initialSwitch?.amount      || "",
+    email:       initialSwitch?.email       || "",
+    note:        initialSwitch?.note        || "",
   });
   const [saving, setSaving] = useState(false);
+
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const ok = form.label.trim() && form.destination.trim() && Number(form.days) > 0;
+
+  // When chain changes, reset token to first available
+  function handleChainChange(chain) {
+    const tokens = CHAIN_TOKENS[chain];
+    setForm((prev) => ({ ...prev, chain, token: tokens[0] }));
+  }
+
+  const availableTokens = CHAIN_TOKENS[form.chain] || [];
+  const ok = form.label.trim() && form.destination.trim() && Number(form.days) > 0 && (form.send_all || form.amount);
+
   const input = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 13px", outline: "none", fontSize: 14 };
   const labelStyle = { color: t.textMuted, display: "block", fontSize: 11, letterSpacing: "0.12em", fontWeight: 850, margin: "16px 0 7px" };
 
@@ -360,35 +361,80 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.70)", backdropFilter: "blur(18px)", display: "grid", placeItems: "center", padding: 16 }}>
-      <div style={{ width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", borderRadius: 22, border: `1px solid ${t.borderUp}`, background: t.surface, boxShadow: t.shadow, padding: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+      <div style={{ width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto", borderRadius: 22, border: `1px solid ${t.borderUp}`, background: t.surface, boxShadow: t.shadow, padding: 24, position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "22px 22px 0 0", background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 4 }}>
           <div>
             <p style={{ color: t.accent, fontSize: 11, letterSpacing: "0.14em", fontWeight: 850, margin: 0 }}>{initialSwitch ? "EDIT PLAN" : "NEW BACKUP PLAN"}</p>
-            <h2 style={{ color: t.text, fontSize: 24, margin: "8px 0 0", letterSpacing: "-0.02em" }}>{initialSwitch ? "Update your plan" : "Tell DeadSwitch what to do"}</h2>
+            <h2 style={{ color: t.text, fontSize: 22, margin: "8px 0 0", letterSpacing: "-0.02em" }}>{initialSwitch ? "Update your plan" : "Tell DeadSwitch what to do"}</h2>
           </div>
           <IconButton onClick={onClose} title="Close" t={t}><X size={15} /></IconButton>
         </div>
-        <label style={labelStyle}>LABEL</label>
-        <input style={input} value={form.label} placeholder="Recovery wallet" onChange={(e) => set("label", e.target.value)} />
-        <label style={labelStyle}>TIMER</label>
+
+        {/* Label */}
+        <label style={labelStyle}>PLAN LABEL</label>
+        <input style={input} value={form.label} placeholder="e.g. Emergency recovery" onChange={(e) => set("label", e.target.value)} />
+
+        {/* Timer */}
+        <label style={labelStyle}>CHECK-IN TIMER</label>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 7 }}>
           {TIMER_PRESETS.map((days) => (
-            <button key={days} onClick={() => set("days", days)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${Number(form.days) === days ? t.accent : t.border}`, background: Number(form.days) === days ? t.accentLow : t.bg, color: Number(form.days) === days ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800 }}>
+            <button key={days} onClick={() => set("days", days)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${Number(form.days) === days ? t.accent : t.border}`, background: Number(form.days) === days ? t.accentLow : t.bg, color: Number(form.days) === days ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13 }}>
               {days}d
             </button>
           ))}
         </div>
         <input style={{ ...input, marginTop: 8 }} type="number" min="1" max="3650" value={form.days} placeholder="Custom days" onChange={(e) => set("days", e.target.value)} />
-        <label style={labelStyle}>DESTINATION WALLET</label>
-        <input style={{ ...input, fontFamily: "'DM Mono', monospace" }} value={form.destination} placeholder="0x..." onChange={(e) => set("destination", e.target.value)} />
+
+        {/* Chain */}
         <label style={labelStyle}>CHAIN</label>
-        <select style={input} value={form.chain} onChange={(e) => set("chain", e.target.value)}>
-          {CHAINS.map((chain) => <option key={chain}>{chain}</option>)}
-        </select>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7 }}>
+          {CHAINS.map((chain) => (
+            <button key={chain} onClick={() => handleChainChange(chain)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${form.chain === chain ? t.accent : t.border}`, background: form.chain === chain ? t.accentLow : t.bg, color: form.chain === chain ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 12 }}>
+              {chain}
+            </button>
+          ))}
+        </div>
+
+        {/* Token — auto-updates based on chain */}
+        <label style={labelStyle}>ASSET TO SEND</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {availableTokens.map((token) => (
+            <button key={token} onClick={() => set("token", token)} style={{ padding: "10px 18px", borderRadius: 11, border: `1px solid ${form.token === token ? t.accent : t.border}`, background: form.token === token ? t.accentLow : t.bg, color: form.token === token ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13, letterSpacing: "0.04em" }}>
+              {token}
+            </button>
+          ))}
+        </div>
+
+        {/* Amount — send all toggle */}
+        <label style={labelStyle}>AMOUNT</label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+          <button onClick={() => set("send_all", true)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${form.send_all ? t.accent : t.border}`, background: form.send_all ? t.accentLow : t.bg, color: form.send_all ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13 }}>
+            100% of balance
+          </button>
+          <button onClick={() => set("send_all", false)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${!form.send_all ? t.accent : t.border}`, background: !form.send_all ? t.accentLow : t.bg, color: !form.send_all ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13 }}>
+            Specific amount
+          </button>
+        </div>
+        {!form.send_all && (
+          <input style={input} type="number" min="0" step="any" value={form.amount} placeholder={`Amount in ${form.token}`} onChange={(e) => set("amount", e.target.value)} />
+        )}
+
+        {/* Destination wallet */}
+        <label style={labelStyle}>BACKUP WALLET ADDRESS</label>
+        <input style={{ ...input, fontFamily: "'DM Mono', monospace" }} value={form.destination} placeholder="0x..." onChange={(e) => set("destination", e.target.value)} />
+
+        {/* Alert email */}
         <label style={labelStyle}>ALERT EMAIL</label>
-        <input style={input} type="email" value={form.email} placeholder="you@example.com" onChange={(e) => set("email", e.target.value)} />
-        <label style={labelStyle}>INSTRUCTIONS</label>
-        <textarea style={{ ...input, minHeight: 92, lineHeight: 1.6, resize: "vertical" }} value={form.note} placeholder="Add any notes your future self should remember." onChange={(e) => set("note", e.target.value)} />
+        <input style={input} type="email" value={form.email} placeholder="you@example.com (get warned 7 days before)" onChange={(e) => set("email", e.target.value)} />
+
+        {/* Personal message */}
+        <label style={labelStyle}>PERSONAL MESSAGE TO RECIPIENT</label>
+        <textarea style={{ ...input, minHeight: 80, lineHeight: 1.6, resize: "vertical" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
+
+        {/* Buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginTop: 22 }}>
           <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: `1px solid ${t.border}`, background: "transparent", color: t.textSub, cursor: "pointer", fontWeight: 750 }}>Cancel</button>
           <button onClick={submit} style={{ padding: 13, borderRadius: 12, border: `1px solid ${ok ? t.accent : t.border}`, background: ok ? t.text : "transparent", color: ok ? t.bg : t.textMuted, cursor: ok ? "pointer" : "default", fontWeight: 850 }}>
@@ -402,9 +448,9 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 
 function HowItWorksModal({ onClose, onCreateClick, t }) {
   const steps = [
-    { step: "01", title: "Create a backup plan", desc: "Choose a destination wallet, pick a timer — anywhere from 2 days to 365 — and write your instructions. That's your switch." },
-    { step: "02", title: "Check in regularly", desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock and keeps your plan dormant." },
-    { step: "03", title: "Go silent — it activates", desc: "If you stop checking in, DeadSwitch automatically moves your assets to the address you set. No middleman." },
+    { step: "01", title: "Create a backup plan", desc: "Choose a chain, pick your asset, set a destination wallet and a check-in timer. That's your switch." },
+    { step: "02", title: "Check in regularly", desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock." },
+    { step: "03", title: "Go silent — it activates", desc: "If you stop checking in, DeadSwitch moves your assets to the address you set. No middleman." },
     { step: "04", title: "Get warned before it fires", desc: "Add your email and DeadSwitch will warn you at 7 days remaining. You'll never be caught off guard." },
   ];
   return (
@@ -459,7 +505,6 @@ export default function DeadSwitch() {
   const t = dark ? D : L;
   const { address, isConnected } = useAccount();
 
-  // Auth listener
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -469,7 +514,6 @@ export default function DeadSwitch() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load switches
   useEffect(() => {
     if (!session) { setLoading(false); return; }
     async function loadSwitches() {
@@ -518,7 +562,14 @@ export default function DeadSwitch() {
   async function createSwitch(form) {
     const days = Number(form.days);
     if (!days || days < 1) return showToast("Timer must be at least 1 day");
-    const { data, error } = await supabase.from("switches").insert([{ label: form.label, days, remaining: days, destination: form.destination, chain: form.chain, note: form.note, email: form.email || null, status: "active", user_id: session.user.id }]).select().single();
+    const { data, error } = await supabase.from("switches").insert([{
+      label: form.label, days, remaining: days,
+      destination: form.destination, chain: form.chain,
+      token: form.token, send_all: form.send_all,
+      amount: form.send_all ? null : form.amount,
+      note: form.note, email: form.email || null,
+      status: "active", user_id: session.user.id,
+    }]).select().single();
     if (error) return showToast(error.message || "Failed to create switch");
     setSwitches((prev) => [data, ...prev]);
     setShowModal(false);
@@ -530,7 +581,14 @@ export default function DeadSwitch() {
     if (!editingSwitch) return;
     const days = Number(form.days);
     if (!days || days < 1) return showToast("Timer must be at least 1 day");
-    const { data, error } = await supabase.from("switches").update({ label: form.label, days, remaining: days, destination: form.destination, chain: form.chain, note: form.note, email: form.email || null, status: editingSwitch.status === "triggered" ? "active" : editingSwitch.status }).eq("id", editingSwitch.id).select().single();
+    const { data, error } = await supabase.from("switches").update({
+      label: form.label, days, remaining: days,
+      destination: form.destination, chain: form.chain,
+      token: form.token, send_all: form.send_all,
+      amount: form.send_all ? null : form.amount,
+      note: form.note, email: form.email || null,
+      status: editingSwitch.status === "triggered" ? "active" : editingSwitch.status,
+    }).eq("id", editingSwitch.id).select().single();
     if (error) return showToast(error.message || "Failed to update switch");
     setSwitches((prev) => prev.map((sw) => (sw.id === editingSwitch.id ? data : sw)));
     setEditingSwitch(null); setShowModal(false);
@@ -580,7 +638,6 @@ export default function DeadSwitch() {
     });
   }, [switches]);
 
-  // Loading
   if (session === undefined) {
     return (
       <div style={{ minHeight: "100vh", background: `linear-gradient(140deg, ${t.bg}, ${t.bg2})`, display: "grid", placeItems: "center" }}>
@@ -590,10 +647,8 @@ export default function DeadSwitch() {
     );
   }
 
-  // Not logged in
   if (!session) return <AuthScreen t={t} />;
 
-  // Dashboard
   return (
     <div style={{ minHeight: "100vh", background: `linear-gradient(140deg, ${t.bg}, ${t.bg2})`, color: t.text, transition: "background 0.3s, color 0.3s" }}>
       <style>{`
