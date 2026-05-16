@@ -3,7 +3,7 @@
 import { supabase } from "../supabase";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount } from "wagmi";
+import { useAccount, useBalance } from "wagmi";
 import {
   AlertTriangle,
   Bell,
@@ -125,12 +125,12 @@ function ProgressBar({ remaining, days, t }) {
 
 /* ── AUTH ────────────────────────────────────────────────────── */
 function AuthScreen({ t }) {
-  const [mode, setMode]       = useState("signin");
-  const [email, setEmail]     = useState("");
+  const [mode, setMode]         = useState("signin");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [error, setError]     = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [message, setMessage]   = useState(null);
+  const [error, setError]       = useState(null);
   const inp = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 14px", outline: "none", fontSize: 14, boxSizing: "border-box" };
 
   async function handleSignIn() {
@@ -220,9 +220,9 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
   const active   = switches.filter((s) => s.status==="active" || s.status==="warning").length;
   const warnings = switches.filter((s) => s.status==="warning" || Number(s.remaining)<=7).length;
   const rows = [
-    { icon: Radar,        label: "Status",   value: active ? "Watching" : "Not set",          color: t.accent  },
-    { icon: Bell,         label: "Heads-up", value: warnings ? `${warnings} due soon` : "All clear", color: warnings ? t.warn : t.accent },
-    { icon: Shield,       label: "Network",  value: "Arc Testnet",                             color: t.accent2 },
+    { icon: Radar,  label: "Status",   value: active ? "Watching" : "Not set",                color: t.accent  },
+    { icon: Bell,   label: "Heads-up", value: warnings ? `${warnings} due soon` : "All clear", color: warnings ? t.warn : t.accent },
+    { icon: Shield, label: "Network",  value: "Arc Testnet",                                   color: t.accent2 },
   ];
   return (
     <div style={{ position: "relative", width: "100%", maxWidth: 590, justifySelf: "end", background: `linear-gradient(145deg, ${t.surface}, ${t.panel})`, border: `1px solid ${t.borderUp}`, borderRadius: 24, padding: isMobile ? 16 : 18, boxShadow: t.shadow, overflow: "hidden" }}>
@@ -231,8 +231,8 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
         <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${t.border}`, margin: "-2px -2px 18px", padding: "0 2px 14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ width: 8, height: 8, borderRadius: 999, background: t.dangerLow, border: `1px solid ${t.danger}55` }} />
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: t.warnLow,  border: `1px solid ${t.warn}55`  }} />
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: t.accentLow,border: `1px solid ${t.accent}55`}} />
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: t.warnLow,   border: `1px solid ${t.warn}55`   }} />
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: t.accentLow, border: `1px solid ${t.accent}55` }} />
           </div>
           <div style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.14em" }}>DEADSWITCH OS</div>
         </div>
@@ -277,7 +277,7 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
         <div style={{ minWidth: 0 }}>
           <StatusPill status={sw.status} t={t} />
           <h3 style={{ color: t.text, fontSize: 17, lineHeight: 1.2, margin: "12px 0 4px", fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.label}</h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
             <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em", border: `1px solid ${t.accent}30` }}>USDC</span>
             <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>Arc Testnet</span>
             {sw.send_all ? (
@@ -327,6 +327,14 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
     note:        initialSwitch?.note        || "",
   });
   const [saving, setSaving] = useState(false);
+
+  // Live wallet balance
+  const { address } = useAccount();
+  const { data: balance } = useBalance({
+    address,
+    query: { enabled: !!address },
+  });
+
   const set  = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const ok   = form.label.trim() && form.destination.trim() && Number(form.days) > 0 && (form.send_all || form.amount);
   const inp  = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 13px", outline: "none", fontSize: 14 };
@@ -350,7 +358,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           <IconButton onClick={onClose} title="Close" t={t}><X size={15} /></IconButton>
         </div>
 
-        {/* Network + asset locked badge */}
+        {/* Network badge */}
         <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.accentLow, border: `1px solid ${t.accent}30`, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: t.accent, flexShrink: 0 }} />
           <span style={{ color: t.accent, fontSize: 12, fontWeight: 800, fontFamily: "'DM Mono', monospace" }}>Arc Testnet</span>
@@ -369,7 +377,19 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
         </div>
         <input style={{ ...inp, marginTop: 8 }} type="number" min="1" max="3650" value={form.days} placeholder="Custom days" onChange={(e) => set("days", e.target.value)} />
 
-        <label style={lbl}>AMOUNT (USDC)</label>
+        {/* Amount label with live balance */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 7px" }}>
+          <span style={{ color: t.textMuted, fontSize: 11, letterSpacing: "0.12em", fontWeight: 850 }}>AMOUNT (USDC)</span>
+          {balance && address ? (
+            <span style={{ color: t.accent, fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>
+              Balance: {parseFloat(balance.formatted).toFixed(2)} {balance.symbol}
+            </span>
+          ) : (
+            <span style={{ color: t.textMuted, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+              Connect wallet to see balance
+            </span>
+          )}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
           <button onClick={() => set("send_all", true)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${form.send_all ? t.accent : t.border}`, background: form.send_all ? t.accentLow : t.bg, color: form.send_all ? t.accent : t.textSub, cursor: "pointer", fontWeight: 800, fontSize: 13 }}>
             100% of balance
@@ -405,9 +425,9 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 /* ── HOW IT WORKS MODAL ──────────────────────────────────────── */
 function HowItWorksModal({ onClose, onCreateClick, t }) {
   const steps = [
-    { step: "01", title: "Create a backup plan", desc: "Set a destination wallet, pick a check-in timer, and enter the USDC amount you want protected. That's your switch." },
-    { step: "02", title: "Check in regularly",   desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock." },
-    { step: "03", title: "Go silent — it activates", desc: "If you stop checking in, DeadSwitch moves your USDC to the address you set. No middleman." },
+    { step: "01", title: "Create a backup plan",      desc: "Set a destination wallet, pick a check-in timer, and enter the USDC amount you want protected. That's your switch." },
+    { step: "02", title: "Check in regularly",         desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock." },
+    { step: "03", title: "Go silent — it activates",   desc: "If you stop checking in, DeadSwitch moves your USDC to the address you set. No middleman." },
     { step: "04", title: "Get warned before it fires", desc: "Add your email and DeadSwitch will warn you at 7 days remaining. You'll never be caught off guard." },
   ];
   return (
@@ -482,8 +502,8 @@ export default function DeadSwitch() {
   }, [session]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => { setNow(new Date()); setWidth(window.innerWidth); });
-    const tick  = setInterval(() => setNow(new Date()), 1000);
+    const frame  = requestAnimationFrame(() => { setNow(new Date()); setWidth(window.innerWidth); });
+    const tick   = setInterval(() => setNow(new Date()), 1000);
     const resize = () => setWidth(window.innerWidth);
     window.addEventListener("resize", resize);
     return () => { cancelAnimationFrame(frame); clearInterval(tick); window.removeEventListener("resize", resize); };
@@ -724,8 +744,8 @@ export default function DeadSwitch() {
         </div>
       </footer>
 
-      {showModal  && <SwitchModal      onClose={() => { setShowModal(false); setEditingSwitch(null); }} onSubmit={editingSwitch ? updateSwitch : createSwitch} initialSwitch={editingSwitch} t={t} />}
-      {showHowIt  && <HowItWorksModal  onClose={() => setShowHowIt(false)} onCreateClick={() => { setEditingSwitch(null); setShowModal(true); }} t={t} />}
+      {showModal  && <SwitchModal     onClose={() => { setShowModal(false); setEditingSwitch(null); }} onSubmit={editingSwitch ? updateSwitch : createSwitch} initialSwitch={editingSwitch} t={t} />}
+      {showHowIt  && <HowItWorksModal onClose={() => setShowHowIt(false)} onCreateClick={() => { setEditingSwitch(null); setShowModal(true); }} t={t} />}
     </div>
   );
 }
