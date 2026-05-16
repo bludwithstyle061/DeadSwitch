@@ -1,22 +1,22 @@
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
-import { mainnet, base, polygon } from "wagmi/chains";
 
-const kiteMainnet = {
-  id: 2366,
-  name: "KiteAI Mainnet",
-  nativeCurrency: { name: "Kite", symbol: "KITE", decimals: 18 },
+const arcTestnet = {
+  id: 5042002,
+  name: "Arc Testnet",
+  nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
   rpcUrls: {
-    default: { http: ["https://rpc.gokite.ai"] },
-    public: { http: ["https://rpc.gokite.ai"] },
+    default: { http: ["https://rpc.testnet.arc.network"] },
+    public:  { http: ["https://rpc.testnet.arc.network"] },
   },
   blockExplorers: {
-    default: { name: "KiteScan", url: "https://kitescan.ai" },
+    default: { name: "ArcScan", url: "https://testnet.arcscan.app" },
   },
+  testnet: true,
 };
 
 export const config = getDefaultConfig({
   appName: "DeadSwitch",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
-  chains: [kiteMainnet, mainnet, base, polygon],
+  chains: [arcTestnet],
   ssr: true,
 });
