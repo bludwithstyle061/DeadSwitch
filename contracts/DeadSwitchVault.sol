@@ -33,31 +33,22 @@ contract DeadSwitchVault {
     function createSwitch(address _backup, uint256 _amount, uint256 _days) external returns (uint256) {
         require(_backup != address(0), "Invalid backup");
         require(_amount > 0, "Amount must be greater than 0");
-
         usdc.transferFrom(msg.sender, address(this), _amount);
-
         switchCount++;
         uint256 deadline = block.timestamp + (_days * 1 days);
-
         switches[switchCount] = Switch({
-            owner: msg.sender,
-            backup: _backup,
-            amount: _amount,
-            deadline: deadline,
-            executed: false,
-            cancelled: false
+            owner: msg.sender, backup: _backup, amount: _amount,
+            deadline: deadline, executed: false, cancelled: false
         });
-
         emit SwitchCreated(switchCount, msg.sender, _backup, _amount, deadline);
         return switchCount;
     }
 
-    function execute(uint256 id) external {
+    function execute(uint256 id) public {
         Switch storage sw = switches[id];
         require(!sw.executed, "Already executed");
         require(!sw.cancelled, "Cancelled");
         require(block.timestamp >= sw.deadline, "Too early");
-
         sw.executed = true;
         usdc.transfer(sw.backup, sw.amount);
         emit Executed(id, sw.backup, sw.amount);
@@ -68,7 +59,6 @@ contract DeadSwitchVault {
         require(msg.sender == sw.owner, "Not owner");
         require(!sw.executed, "Already executed");
         require(!sw.cancelled, "Already cancelled");
-
         sw.cancelled = true;
         usdc.transfer(sw.owner, sw.amount);
         emit Cancelled(id, sw.owner);
@@ -79,9 +69,26 @@ contract DeadSwitchVault {
         require(msg.sender == sw.owner, "Not owner");
         require(!sw.executed, "Already executed");
         require(!sw.cancelled, "Cancelled");
-
         sw.deadline = block.timestamp + (_days * 1 days);
         emit CheckIn(id, sw.owner, sw.deadline);
+    }
+
+    // ── Chainlink Automation ──────────────────────────────────
+    function checkUpkeep(bytes calldata) external view returns (bool upkeepNeeded, bytes memory performData) {
+        for (uint256 i = 1; i <= switchCount; i++) {
+            Switch storage sw = switches[i];
+            if (!sw.executed && !sw.cancelled && block.timestamp >= sw.deadline) {
+                return (true, abi.encode(i));
+            }
+        }
+        return (false, "");
+    }
+
+    function performUpkeep(bytes calldata performData) external {
+        uint256 id = abi.decode(performData, (uint256));
+        Switch storage sw = switches[id];
+        require(!sw.executed && !sw.cancelled && block.timestamp >= sw.deadline, "Not ready");
+        execute(id);
     }
 
     function timeRemaining(uint256 id) external view returns (uint256) {
