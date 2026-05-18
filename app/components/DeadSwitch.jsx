@@ -1,9 +1,11 @@
 "use client";
 
 import { supabase } from "../supabase";
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, useBalance } from "wagmi";
+import { useAccount, useBalance, useWalletClient, usePublicClient } from "wagmi";
+import { parseUnits } from "viem";
 import {
   AlertTriangle,
   Bell,
@@ -48,6 +50,11 @@ const L = {
   shadow: "0 28px 80px rgba(23,32,48,0.12)",
 };
 
+const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
+const USDC_ABI = [
+  { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable", type: "function" },
+];
+
 const TIMER_PRESETS = [2, 5, 30, 60, 90, 180];
 
 function truncateWallet(value = "") {
@@ -65,7 +72,6 @@ function statusMeta(status, t) {
   return map[status] || map.active;
 }
 
-/* ── LOGO ────────────────────────────────────────────────────── */
 function DSLogo({ size = 34, t }) {
   const s = size;
   const cx = s * 0.5, cy = s * 0.5;
@@ -78,7 +84,6 @@ function DSLogo({ size = 34, t }) {
     [0, cy], [px2 * 0.35, cy], [px2 * 0.52, cy - s * 0.22],
     [px2 * 0.68, cy + s * 0.22], [px2 * 0.84, cy], [px2, cy],
   ].map(([x, y]) => `${x},${y}`).join(" ");
-
   return (
     <div style={{ width: size, height: size, position: "relative", display: "grid", placeItems: "center", flexShrink: 0 }}>
       <svg width={size} height={size} viewBox={`0 0 ${s} ${s}`} fill="none" aria-hidden="true">
@@ -285,6 +290,9 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
             ) : sw.amount ? (
               <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>{sw.amount} USDC</span>
             ) : null}
+            {sw.contract_id !== null && sw.contract_id !== undefined && (
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentMid, color: t.accent, fontSize: 10, fontWeight: 900, border: `1px solid ${t.accent}40` }}>On-chain #{sw.contract_id}</span>
+            )}
           </div>
           <p style={{ color: t.textSub, fontSize: 12, margin: 0, fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
         </div>
@@ -316,7 +324,7 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
 }
 
 /* ── SWITCH MODAL ────────────────────────────────────────────── */
-function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
+function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
   const [form, setForm] = useState({
     label:       initialSwitch?.label       || "",
     days:        initialSwitch?.days        || 30,
@@ -327,13 +335,8 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
     note:        initialSwitch?.note        || "",
   });
   const [saving, setSaving] = useState(false);
-
-  // Live wallet balance
   const { address } = useAccount();
-  const { data: balance } = useBalance({
-    address,
-    query: { enabled: !!address },
-  });
+  const { data: balance } = useBalance({ address, query: { enabled: !!address } });
 
   const set  = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const ok   = form.label.trim() && form.destination.trim() && Number(form.days) > 0 && (form.send_all || form.amount);
@@ -342,14 +345,13 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 
   async function submit() {
     if (!ok || saving) return;
-    setSaving(true); await onSubmit(form); setSaving(false);
+    setSaving(true); await onSubmit(form, balance); setSaving(false);
   }
 
   return (
     <div onClick={(e) => e.target===e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.70)", backdropFilter: "blur(18px)", display: "grid", placeItems: "center", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", borderRadius: 22, border: `1px solid ${t.borderUp}`, background: t.surface, boxShadow: t.shadow, padding: 24, position: "relative" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "22px 22px 0 0", background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
-
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 4 }}>
           <div>
             <p style={{ color: t.accent, fontSize: 11, letterSpacing: "0.14em", fontWeight: 850, margin: 0 }}>{initialSwitch ? "EDIT PLAN" : "NEW BACKUP PLAN"}</p>
@@ -358,10 +360,15 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
           <IconButton onClick={onClose} title="Close" t={t}><X size={15} /></IconButton>
         </div>
 
-        {/* Network badge */}
+        {!isConnected && (
+          <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.warnLow, border: `1px solid ${t.warn}40`, color: t.warn, fontSize: 12, fontWeight: 700 }}>
+            ⚠️ Connect your wallet to deploy this switch on-chain
+          </div>
+        )}
+
         <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.accentLow, border: `1px solid ${t.accent}30`, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: t.accent, flexShrink: 0 }} />
-          <span style={{ color: t.accent, fontSize: 12, fontWeight: 800, fontFamily: "'DM Mono', monospace" }}>Arc Testnet</span>
+          <span style={{ color: t.accent, fontSize: 12, fontWeight: 800, fontFamily: "'DM Mono', monospace" }}>Arc Testnet · USDC</span>
         </div>
 
         <label style={lbl}>PLAN LABEL</label>
@@ -377,7 +384,6 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
         </div>
         <input style={{ ...inp, marginTop: 8 }} type="number" min="1" max="3650" value={form.days} placeholder="Custom days" onChange={(e) => set("days", e.target.value)} />
 
-        {/* Amount label with live balance */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 7px" }}>
           <span style={{ color: t.textMuted, fontSize: 11, letterSpacing: "0.12em", fontWeight: 850 }}>AMOUNT (USDC)</span>
           {balance && address ? (
@@ -385,9 +391,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
               Balance: {parseFloat(balance.formatted).toFixed(2)} {balance.symbol}
             </span>
           ) : (
-            <span style={{ color: t.textMuted, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
-              Connect wallet to see balance
-            </span>
+            <span style={{ color: t.textMuted, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>Connect wallet to see balance</span>
           )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
@@ -414,7 +418,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginTop: 22 }}>
           <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: `1px solid ${t.border}`, background: "transparent", color: t.textSub, cursor: "pointer", fontWeight: 750 }}>Cancel</button>
           <button onClick={submit} style={{ padding: 13, borderRadius: 12, border: `1px solid ${ok ? t.accent : t.border}`, background: ok ? t.text : "transparent", color: ok ? t.bg : t.textMuted, cursor: ok ? "pointer" : "default", fontWeight: 850 }}>
-            {saving ? "Saving..." : initialSwitch ? "Save changes" : "Save backup plan"}
+            {saving ? "Deploying on-chain..." : initialSwitch ? "Save changes" : "Deploy backup plan"}
           </button>
         </div>
       </div>
@@ -425,9 +429,9 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t }) {
 /* ── HOW IT WORKS MODAL ──────────────────────────────────────── */
 function HowItWorksModal({ onClose, onCreateClick, t }) {
   const steps = [
-    { step: "01", title: "Create a backup plan",      desc: "Set a destination wallet, pick a check-in timer, and enter the USDC amount you want protected. That's your switch." },
-    { step: "02", title: "Check in regularly",         desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock." },
-    { step: "03", title: "Go silent — it activates",   desc: "If you stop checking in, DeadSwitch moves your USDC to the address you set. No middleman." },
+    { step: "01", title: "Create a backup plan",      desc: "Set a destination wallet, pick a check-in timer, and enter the USDC amount. Your switch deploys on Arc testnet." },
+    { step: "02", title: "Check in regularly",         desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock on-chain." },
+    { step: "03", title: "Go silent — it activates",   desc: "If you stop checking in, Chainlink Automation triggers your contract and sends USDC to your backup address. No middleman." },
     { step: "04", title: "Get warned before it fires", desc: "Add your email and DeadSwitch will warn you at 7 days remaining. You'll never be caught off guard." },
   ];
   return (
@@ -480,7 +484,10 @@ export default function DeadSwitch() {
   const [now, setNow]             = useState(null);
   const [width, setWidth]         = useState(1024);
   const t = dark ? D : L;
+
   const { address, isConnected }  = useAccount();
+  const { data: walletClient }    = useWalletClient();
+  const publicClient              = usePublicClient();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -527,9 +534,59 @@ export default function DeadSwitch() {
     return { ok: res.ok, json };
   }
 
-  async function createSwitch(form) {
+  // ── Create switch: approve USDC → createSwitch on-chain → save to Supabase ──
+  async function createSwitch(form, balance) {
     const days = Number(form.days);
     if (!days || days < 1) return showToast("Timer must be at least 1 day");
+
+    let contract_id = null;
+    let tx_hash = null;
+
+    if (isConnected && walletClient && CONTRACT_ADDRESS) {
+      try {
+        // Work out USDC amount — 6 decimals on Arc ERC-20 interface
+        let usdcAmount;
+        if (form.send_all && balance) {
+          usdcAmount = parseUnits(parseFloat(balance.formatted).toFixed(6), 6);
+        } else if (form.amount) {
+          usdcAmount = parseUnits(String(Number(form.amount).toFixed(6)), 6);
+        } else {
+          return showToast("Please enter a USDC amount");
+        }
+
+        // Step 1 — Approve USDC
+        showToast("Step 1/2 — Approve USDC... confirm in wallet");
+        const approveHash = await walletClient.writeContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "approve",
+          args: [CONTRACT_ADDRESS, usdcAmount],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        showToast("Approved ✅ Step 2/2 — Deploying switch...");
+
+        // Step 2 — Create switch on-chain
+        const hash = await walletClient.writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "createSwitch",
+          args: [form.destination, usdcAmount, BigInt(days)],
+        });
+
+        showToast("Transaction submitted, waiting for confirmation...");
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        tx_hash = hash;
+
+        const log = receipt.logs[0];
+        if (log) contract_id = Number(log.topics[1]);
+
+        showToast("On-chain deployment confirmed! ✅");
+      } catch (err) {
+        console.error("Contract error:", err);
+        showToast("On-chain deploy failed — saving to database only");
+      }
+    }
+
     const { data, error } = await supabase.from("switches").insert([{
       label: form.label, days, remaining: days,
       destination: form.destination,
@@ -538,11 +595,13 @@ export default function DeadSwitch() {
       amount: form.send_all ? null : form.amount,
       note: form.note, email: form.email || null,
       status: "active", user_id: session.user.id,
+      contract_id, tx_hash,
     }]).select().single();
+
     if (error) return showToast(error.message || "Failed to create switch");
     setSwitches((p) => [data, ...p]);
     setShowModal(false);
-    showToast("Backup plan created");
+    showToast(contract_id !== null ? `Deployed on-chain! Switch #${contract_id}` : "Backup plan created");
     if (data.email) sendSwitchEmail(data, "created");
   }
 
@@ -565,12 +624,32 @@ export default function DeadSwitch() {
     showToast("Backup plan updated");
   }
 
+  // ── Check in: on-chain + Supabase ──
   async function checkIn(id) {
-    const sw = switches.find((s) => s.id === id); if (!sw) return;
+    const sw = switches.find((s) => s.id === id);
+    if (!sw) return;
+
+    if (sw.contract_id !== null && sw.contract_id !== undefined && isConnected && walletClient) {
+      try {
+        showToast("Checking in on-chain... confirm in wallet");
+        const hash = await walletClient.writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "checkIn",
+          args: [BigInt(sw.contract_id), BigInt(sw.days)],
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
+        showToast("On-chain check-in confirmed ✅");
+      } catch (err) {
+        console.error("Check-in error:", err);
+        showToast("On-chain check-in failed — updating database only");
+      }
+    }
+
     const { data, error } = await supabase.from("switches").update({ remaining: sw.days, status: "active" }).eq("id", id).select().single();
     if (error) return showToast(error.message || "Check-in failed");
     setSwitches((p) => p.map((s) => s.id === id ? data : s));
-    showToast("Check-in confirmed");
+    if (!sw.contract_id) showToast("Check-in confirmed");
   }
 
   async function pauseSwitch(id) {
@@ -632,7 +711,6 @@ export default function DeadSwitch() {
         </div>
       )}
 
-      {/* NAV */}
       <nav style={{ position: "sticky", top: 0, zIndex: 100, padding: `0 ${px}px`, borderBottom: `1px solid ${t.border}`, backdropFilter: "blur(22px)", background: dark ? "rgba(7,8,13,0.82)" : "rgba(246,247,244,0.82)" }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", height: 72, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -744,7 +822,7 @@ export default function DeadSwitch() {
         </div>
       </footer>
 
-      {showModal  && <SwitchModal     onClose={() => { setShowModal(false); setEditingSwitch(null); }} onSubmit={editingSwitch ? updateSwitch : createSwitch} initialSwitch={editingSwitch} t={t} />}
+      {showModal  && <SwitchModal onClose={() => { setShowModal(false); setEditingSwitch(null); }} onSubmit={editingSwitch ? updateSwitch : createSwitch} initialSwitch={editingSwitch} t={t} isConnected={isConnected} />}
       {showHowIt  && <HowItWorksModal onClose={() => setShowHowIt(false)} onCreateClick={() => { setEditingSwitch(null); setShowModal(true); }} t={t} />}
     </div>
   );
