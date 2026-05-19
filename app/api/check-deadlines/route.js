@@ -1,72 +1,82 @@
-import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import { createWalletClient, http, publicActions } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const arcTestnet = {
+  id: 5042002,
+  name: "Arc Testnet",
+  nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
+  rpcUrls: {
+    default: { http: ["https://rpc.testnet.arc.network"] },
+    public:  { http: ["https://rpc.testnet.arc.network"] },
+  },
+};
 
-async function sendWarningEmail(sw, remaining) {
-  const { error } = await resend.emails.send({
-    from: "DeadSwitch <onboarding@resend.dev>",
-    to: sw.email,
-    subject: `DeadSwitch: "${sw.label}" activates in ${remaining} days`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-        <h2 style="color: #00D4A8;">DeadSwitch Warning</h2>
-        <p>Your switch <strong>${sw.label}</strong> will activate in <strong>${remaining} days</strong>.</p>
-        <p>If you're still here, log in and check in to reset your timer.</p>
-        <a href="http://localhost:3000" style="display:inline-block; margin-top:16px; padding: 12px 24px; background: #00D4A8; color: #000; border-radius: 8px; text-decoration: none; font-weight: 700;">
-          Check In Now
-        </a>
-        <p style="margin-top: 32px; color: #888; font-size: 12px;">Powered by DeadSwitch · Kite Chain</p>
-      </div>
-    `,
-  });
-
-  if (error) throw new Error(error.message || JSON.stringify(error));
-}
-
-export async function GET() {
-  if (!process.env.RESEND_API_KEY) {
-    return Response.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
+export async function GET(request) {
+  // Verify cron secret so only Vercel can call this
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: switches, error } = await supabase
-    .from("switches")
-    .select("*")
-    .in("status", ["active", "warning"]);
+  try {
+    // Get all active switches that have expired
+    const now = new Date().toISOString();
+    const { data: switches, error } = await supabase
+      .from("switches")
+      .select("*")
+      .eq("status", "active")
+      .lte("remaining", 0)
+      .not("contract_id", "is", null);
 
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
+    if (error) throw error;
+    if (!switches || switches.length === 0) {
+      return Response.json({ message: "No expired switches", executed: 0 });
+    }
 
-  const results = [];
+    // Set up wallet to call execute()
+    const account = privateKeyToAccount(`0x${process.env.EXECUTOR_PRIVATE_KEY}`);
+    const client = createWalletClient({
+      account,
+      chain: arcTestnet,
+      transport: http("https://rpc.testnet.arc.network"),
+    }).extend(publicActions);
 
-  for (const sw of switches || []) {
-    const currentRemaining = Number(sw.remaining);
-    if (!Number.isFinite(currentRemaining)) continue;
+    let executed = 0;
 
-    const nextRemaining = Math.max(0, currentRemaining - 1);
-    const nextStatus = nextRemaining === 0 ? "triggered" : nextRemaining <= 7 ? "warning" : sw.status;
-    const shouldWarn = Boolean(sw.email) && sw.status === "active" && nextRemaining > 0 && nextRemaining <= 7;
-
-    if (shouldWarn) {
+    for (const sw of switches) {
       try {
-        await sendWarningEmail(sw, nextRemaining);
-        results.push({ id: sw.id, label: sw.label, email: sw.email, warningSent: true });
-      } catch (mailError) {
-        results.push({ id: sw.id, label: sw.label, email: sw.email, warningSent: false, error: mailError.message });
+        const hash = await client.writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "execute",
+          args: [BigInt(sw.contract_id)],
+        });
+
+        await client.waitForTransactionReceipt({ hash });
+
+        // Update Supabase status
+        await supabase
+          .from("switches")
+          .update({ status: "triggered", tx_hash: hash })
+          .eq("id", sw.id);
+
+        executed++;
+        console.log(`Executed switch ${sw.id}, contract_id ${sw.contract_id}`);
+      } catch (err) {
+        console.error(`Failed to execute switch ${sw.id}:`, err.message);
       }
     }
 
-    await supabase
-      .from("switches")
-      .update({ remaining: nextRemaining, status: nextStatus })
-      .eq("id", sw.id);
+    return Response.json({ message: "Done", executed });
+  } catch (err) {
+    console.error("Cron error:", err);
+    return Response.json({ error: err.message }, { status: 500 });
   }
-
-  return Response.json({ checked: switches?.length || 0, results });
 }
