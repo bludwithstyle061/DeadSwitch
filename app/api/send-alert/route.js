@@ -2,37 +2,61 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  })[char]);
+}
+
+function appUrl() {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "https://dead-switch.vercel.app";
+}
+
 export async function POST(request) {
   const { email, label, remaining, type = "warning" } = await request.json();
 
   if (!process.env.RESEND_API_KEY) {
-    return Response.json({ error: "Missing RESEND_API_KEY in .env.local" }, { status: 500 });
+    return Response.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
   }
+
+  if (!email) {
+    return Response.json({ error: "Missing recipient email" }, { status: 400 });
+  }
+
+  const safeLabel = escapeHtml(label || "Untitled switch");
+  const safeRemaining = escapeHtml(remaining ?? "");
+  const url = appUrl();
 
   const templates = {
     created: {
       eyebrow: "Switch armed",
-      subject: `DeadSwitch: "${label}" is now active`,
+      subject: `DeadSwitch: "${label || "Untitled switch"}" is now active`,
       body: `
-        <p>Your switch <strong>${label}</strong> has been created successfully.</p>
+        <p>Your switch <strong>${safeLabel}</strong> has been created successfully.</p>
         <p>DeadSwitch is now watching the timer and will notify you as the deadline gets close.</p>
       `,
       cta: "Open DeadSwitch",
     },
     cancelled: {
       eyebrow: "Switch cancelled",
-      subject: `DeadSwitch: "${label}" was cancelled`,
+      subject: `DeadSwitch: "${label || "Untitled switch"}" was cancelled`,
       body: `
-        <p>Your switch <strong>${label}</strong> has been cancelled.</p>
+        <p>Your switch <strong>${safeLabel}</strong> has been cancelled.</p>
         <p>The timer is no longer active and DeadSwitch will not send deadline alerts for this switch.</p>
       `,
       cta: "Open DeadSwitch",
     },
     warning: {
       eyebrow: "Deadline warning",
-      subject: `DeadSwitch: "${label}" activates in ${remaining} days`,
+      subject: `DeadSwitch: "${label || "Untitled switch"}" activates in ${remaining} days`,
       body: `
-        <p>Your switch <strong>${label}</strong> will activate in <strong>${remaining} days</strong>.</p>
+        <p>Your switch <strong>${safeLabel}</strong> will activate in <strong>${safeRemaining} days</strong>.</p>
         <p>If you're still here, log in and check in to reset your timer.</p>
       `,
       cta: "Check In Now",
@@ -52,10 +76,10 @@ export async function POST(request) {
         <div style="color: #B8C0D0; font-size: 15px; line-height: 1.7;">
           ${template.body}
         </div>
-        <a href="http://localhost:3000" style="display:inline-block; margin-top:16px; padding: 12px 24px; background: #00D4A8; color: #000; border-radius: 8px; text-decoration: none; font-weight: 700;">
+        <a href="${url}" style="display:inline-block; margin-top:16px; padding: 12px 24px; background: #00D4A8; color: #000; border-radius: 8px; text-decoration: none; font-weight: 700;">
           ${template.cta}
         </a>
-        <p style="margin-top: 32px; color: #667085; font-size: 12px;">Powered by DeadSwitch / Kite Chain</p>
+        <p style="margin-top: 32px; color: #667085; font-size: 12px;">DeadSwitch / Arc Testnet</p>
       </div>
     `,
   });

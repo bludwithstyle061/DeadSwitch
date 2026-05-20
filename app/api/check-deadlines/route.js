@@ -3,55 +3,83 @@ import { createWalletClient, http, publicActions } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
-
 const arcTestnet = {
   id: 5042002,
   name: "Arc Testnet",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
   rpcUrls: {
     default: { http: ["https://rpc.testnet.arc.network"] },
-    public:  { http: ["https://rpc.testnet.arc.network"] },
+    public: { http: ["https://rpc.testnet.arc.network"] },
   },
 };
 
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+function normalizePrivateKey(value) {
+  return value.startsWith("0x") ? value : `0x${value}`;
+}
+
+function daysFromSeconds(seconds) {
+  if (seconds <= 0n) return 0;
+  return Math.ceil(Number(seconds) / 86400);
+}
+
 export async function GET(request) {
-  // Verify cron secret so only Vercel can call this
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    // Get all active switches that have expired
-    const now = new Date().toISOString();
-    const { data: switches, error } = await supabase
-      .from("switches")
-      .select("*")
-      .eq("status", "active")
-      .lte("remaining", 0)
-      .not("contract_id", "is", null);
+    const supabase = createClient(
+      requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+      requiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    );
 
-    if (error) throw error;
-    if (!switches || switches.length === 0) {
-      return Response.json({ message: "No expired switches", executed: 0 });
-    }
-
-    // Set up wallet to call execute()
-    const account = privateKeyToAccount(`0x${process.env.EXECUTOR_PRIVATE_KEY}`);
+    const account = privateKeyToAccount(normalizePrivateKey(requiredEnv("EXECUTOR_PRIVATE_KEY")));
     const client = createWalletClient({
       account,
       chain: arcTestnet,
       transport: http("https://rpc.testnet.arc.network"),
     }).extend(publicActions);
 
-    let executed = 0;
+    const { data: switches, error } = await supabase
+      .from("switches")
+      .select("*")
+      .in("status", ["active", "warning"])
+      .not("contract_id", "is", null);
 
-    for (const sw of switches) {
+    if (error) throw error;
+
+    let executed = 0;
+    let synced = 0;
+    const failures = [];
+
+    for (const sw of switches || []) {
       try {
+        const secondsRemaining = await client.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "timeRemaining",
+          args: [BigInt(sw.contract_id)],
+        });
+
+        const remaining = daysFromSeconds(secondsRemaining);
+
+        if (remaining > 0) {
+          const nextStatus = remaining <= 7 ? "warning" : "active";
+          await supabase
+            .from("switches")
+            .update({ remaining, status: nextStatus })
+            .eq("id", sw.id);
+          synced++;
+          continue;
+        }
+
         const hash = await client.writeContract({
           address: CONTRACT_ADDRESS,
           abi: CONTRACT_ABI,
@@ -61,20 +89,24 @@ export async function GET(request) {
 
         await client.waitForTransactionReceipt({ hash });
 
-        // Update Supabase status
         await supabase
           .from("switches")
-          .update({ status: "triggered", tx_hash: hash })
+          .update({ status: "triggered", remaining: 0, tx_hash: hash })
           .eq("id", sw.id);
 
         executed++;
-        console.log(`Executed switch ${sw.id}, contract_id ${sw.contract_id}`);
       } catch (err) {
-        console.error(`Failed to execute switch ${sw.id}:`, err.message);
+        failures.push({ id: sw.id, contract_id: sw.contract_id, error: err.message });
       }
     }
 
-    return Response.json({ message: "Done", executed });
+    return Response.json({
+      message: "Deadline check complete",
+      checked: switches?.length || 0,
+      synced,
+      executed,
+      failures,
+    });
   } catch (err) {
     console.error("Cron error:", err);
     return Response.json({ error: err.message }, { status: 500 });
