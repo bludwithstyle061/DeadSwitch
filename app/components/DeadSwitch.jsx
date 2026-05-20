@@ -133,10 +133,22 @@ function AuthScreen({ t }) {
   const [mode, setMode]         = useState("signin");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading]   = useState(false);
   const [message, setMessage]   = useState(null);
   const [error, setError]       = useState(null);
   const inp = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 14px", outline: "none", fontSize: 14, boxSizing: "border-box" };
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const hashParams = new URLSearchParams(window.location.hash.replace("#", ""));
+    if (url.searchParams.get("type") === "recovery" || hashParams.get("type") === "recovery") {
+      requestAnimationFrame(() => {
+        setMode("reset");
+        setMessage("Enter a new password for your DeadSwitch account.");
+      });
+    }
+  }, []);
 
   async function handleSignIn() {
     if (!email || !password) return setError("Please enter email and password");
@@ -162,6 +174,30 @@ function AuthScreen({ t }) {
     else setMessage("Magic link sent! Check your email.");
     setLoading(false);
   }
+  async function handleForgotPassword() {
+    if (!email) return setError("Please enter your email");
+    setLoading(true); setError(null); setMessage(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}?type=recovery`,
+    });
+    if (error) setError(error.message);
+    else setMessage("Password reset link sent. Check your email.");
+    setLoading(false);
+  }
+  async function handlePasswordReset() {
+    if (!password) return setError("Please enter a new password");
+    if (password.length < 6) return setError("Password must be at least 6 characters");
+    if (password !== confirmPassword) return setError("Passwords do not match");
+    setLoading(true); setError(null); setMessage(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) setError(error.message);
+    else {
+      setMessage("Password updated. You can continue to your dashboard.");
+      setPassword("");
+      setConfirmPassword("");
+    }
+    setLoading(false);
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: `linear-gradient(140deg, ${t.bg}, ${t.bg2})`, display: "grid", placeItems: "center", padding: 16 }}>
@@ -179,6 +215,7 @@ function AuthScreen({ t }) {
         </div>
         <div style={{ background: t.surface, border: `1px solid ${t.borderUp}`, borderRadius: 22, padding: 28, boxShadow: t.shadow, position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
+          {mode !== "forgot" && mode !== "reset" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 24, background: t.bg, borderRadius: 12, padding: 4 }}>
             {[["signin","Sign In"],["signup","Sign Up"],["magic","Magic Link"]].map(([m, label]) => (
               <button key={m} onClick={() => { setMode(m); setError(null); setMessage(null); }} style={{ padding: "8px 0", borderRadius: 9, border: "none", background: mode===m ? t.surface : "transparent", color: mode===m ? t.text : t.textMuted, fontWeight: mode===m ? 800 : 600, fontSize: 12, cursor: "pointer", transition: "all 0.2s", boxShadow: mode===m ? "0 2px 8px rgba(0,0,0,0.12)" : "none" }}>
@@ -186,23 +223,37 @@ function AuthScreen({ t }) {
               </button>
             ))}
           </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {mode !== "reset" && (
             <div>
               <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>EMAIL</label>
               <input style={inp} type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
-            {mode !== "magic" && (
+            )}
+            {mode !== "magic" && mode !== "forgot" && (
               <div>
-                <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>PASSWORD</label>
-                <input style={inp} type="password" placeholder={mode==="signup" ? "Min. 6 characters" : "Your password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key==="Enter" && (mode==="signin" ? handleSignIn() : handleSignUp())} />
+                <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>{mode === "reset" ? "NEW PASSWORD" : "PASSWORD"}</label>
+                <input style={inp} type="password" placeholder={mode==="signup" || mode==="reset" ? "Min. 6 characters" : "Your password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key==="Enter" && (mode==="signin" ? handleSignIn() : mode==="signup" ? handleSignUp() : handlePasswordReset())} />
+              </div>
+            )}
+            {mode === "reset" && (
+              <div>
+                <label style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.12em", display: "block", marginBottom: 7 }}>CONFIRM PASSWORD</label>
+                <input style={inp} type="password" placeholder="Re-enter new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key==="Enter" && handlePasswordReset()} />
               </div>
             )}
           </div>
           {error   && <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.dangerLow, border: `1px solid ${t.danger}30`, color: t.danger, fontSize: 13 }}>{error}</div>}
           {message && <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.accentLow, border: `1px solid ${t.accent}30`, color: t.accent, fontSize: 13 }}>{message}</div>}
-          <button onClick={mode==="signin" ? handleSignIn : mode==="signup" ? handleSignUp : handleMagicLink} style={{ width: "100%", marginTop: 20, padding: "13px 0", background: t.text, border: "none", borderRadius: 13, color: t.bg, fontSize: 14, fontWeight: 900, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, transition: "opacity 0.2s", letterSpacing: "-0.01em" }}>
-            {loading ? "Please wait..." : mode==="signin" ? "Sign in →" : mode==="signup" ? "Create account →" : "Send magic link →"}
+          <button onClick={mode==="signin" ? handleSignIn : mode==="signup" ? handleSignUp : mode==="magic" ? handleMagicLink : mode==="forgot" ? handleForgotPassword : handlePasswordReset} style={{ width: "100%", marginTop: 20, padding: "13px 0", background: t.text, border: "none", borderRadius: 13, color: t.bg, fontSize: 14, fontWeight: 900, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1, transition: "opacity 0.2s", letterSpacing: "-0.01em" }}>
+            {loading ? "Please wait..." : mode==="signin" ? "Sign in →" : mode==="signup" ? "Create account →" : mode==="magic" ? "Send magic link →" : mode==="forgot" ? "Send reset link →" : "Update password →"}
           </button>
+          {mode === "signin" && (
+            <button onClick={() => { setMode("forgot"); setError(null); setMessage(null); }} style={{ width: "100%", marginTop: 12, background: "none", border: "none", color: t.accent, fontWeight: 800, cursor: "pointer", fontSize: 13, padding: 0 }}>
+              Forgot password?
+            </button>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0" }}>
             <div style={{ flex: 1, height: 1, background: t.border }} />
             <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700 }}>OR</span>
