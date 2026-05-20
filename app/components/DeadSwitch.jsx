@@ -5,7 +5,7 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useBalance, useWalletClient, usePublicClient } from "wagmi";
-import { parseUnits } from "viem";
+import { parseEventLogs, parseUnits } from "viem";
 import {
   AlertTriangle,
   Bell,
@@ -413,7 +413,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
         <input style={inp} type="email" value={form.email} placeholder="you@example.com (warned 7 days before)" onChange={(e) => set("email", e.target.value)} />
 
         <label style={lbl}>PERSONAL MESSAGE TO RECIPIENT</label>
-        <textarea style={{ ...inp, minHeight: 80, lineHeight: 1.6, resize: "vertical" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
+        <textarea style={{ ...inp, minHeight: 96, lineHeight: 1.6, resize: "none" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginTop: 22 }}>
           <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: `1px solid ${t.border}`, background: "transparent", color: t.textSub, cursor: "pointer", fontWeight: 750 }}>Cancel</button>
@@ -499,13 +499,31 @@ export default function DeadSwitch() {
   }, []);
 
   useEffect(() => {
-    if (!session) { setLoading(false); return; }
-    supabase.from("switches").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false })
-      .then(({ data, error }) => {
+    let ignore = false;
+
+    async function loadSwitches() {
+      if (!session) {
+        requestAnimationFrame(() => {
+          if (!ignore) setLoading(false);
+        });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("switches")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false });
+
+      if (!ignore) {
         if (error) showToast(error.message);
         if (data) setSwitches(data);
         setLoading(false);
-      });
+      }
+    }
+
+    loadSwitches();
+    return () => { ignore = true; };
   }, [session]);
 
   useEffect(() => {
@@ -577,8 +595,13 @@ export default function DeadSwitch() {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         tx_hash = hash;
 
-        const log = receipt.logs[0];
-        if (log) contract_id = Number(log.topics[1]);
+        const switchCreatedLogs = parseEventLogs({
+          abi: CONTRACT_ABI,
+          logs: receipt.logs,
+          eventName: "SwitchCreated",
+        });
+        const switchId = switchCreatedLogs[0]?.args?.id;
+        if (switchId !== undefined) contract_id = switchId.toString();
 
         showToast("On-chain deployment confirmed! ✅");
       } catch (err) {
