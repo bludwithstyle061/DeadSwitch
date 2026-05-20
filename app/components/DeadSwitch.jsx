@@ -275,6 +275,7 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
 /* ── SWITCH CARD ─────────────────────────────────────────────── */
 function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
   const meta = statusMeta(sw.status, t);
+  const isFinal = sw.status === "cancelled" || sw.status === "triggered";
   return (
     <article style={{ background: `linear-gradient(180deg, ${t.surface}, ${t.panel})`, border: `1px solid ${Number(sw.remaining)<=7 ? `${t.warn}45` : t.border}`, borderRadius: 18, padding: 18, boxShadow: "0 12px 40px rgba(0,0,0,0.08)", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${meta.color}, transparent)` }} />
@@ -310,15 +311,17 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
           <Mail size={12} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.email}</span>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: sw.email ? "1fr 38px 38px 38px 38px" : "1fr 38px 38px 38px", gap: 8, marginTop: 16 }}>
-        <button onClick={() => onCheckin(sw.id)} style={{ border: `1px solid ${t.accent}36`, background: t.accentLow, color: t.accent, borderRadius: 11, fontWeight: 850, fontSize: 12, letterSpacing: "0.04em", cursor: "pointer" }}>CHECK IN</button>
-        {sw.email && <IconButton onClick={() => onAlert(sw)} title="Send warning email" t={t} tone="warn"><Mail size={15} /></IconButton>}
-        <IconButton onClick={() => onEdit(sw)} title="Edit switch" t={t}><Pencil size={15} /></IconButton>
-        <IconButton onClick={() => onPause(sw.id)} title={sw.status==="paused" ? "Resume" : "Pause"} t={t}>
-          {sw.status==="paused" ? <Play size={15}/> : <Pause size={15}/>}
-        </IconButton>
-        <IconButton onClick={() => onCancel(sw)} title="Cancel switch" t={t} tone="danger"><X size={15} /></IconButton>
-      </div>
+      {!isFinal && (
+        <div style={{ display: "grid", gridTemplateColumns: sw.email ? "1fr 38px 38px 38px 38px" : "1fr 38px 38px 38px", gap: 8, marginTop: 16 }}>
+          <button onClick={() => onCheckin(sw.id)} style={{ border: `1px solid ${t.accent}36`, background: t.accentLow, color: t.accent, borderRadius: 11, fontWeight: 850, fontSize: 12, letterSpacing: "0.04em", cursor: "pointer" }}>CHECK IN</button>
+          {sw.email && <IconButton onClick={() => onAlert(sw)} title="Send warning email" t={t} tone="warn"><Mail size={15} /></IconButton>}
+          <IconButton onClick={() => onEdit(sw)} title="Edit switch" t={t}><Pencil size={15} /></IconButton>
+          <IconButton onClick={() => onPause(sw.id)} title={sw.status==="paused" ? "Resume" : "Pause"} t={t}>
+            {sw.status==="paused" ? <Play size={15}/> : <Pause size={15}/>}
+          </IconButton>
+          <IconButton onClick={() => onCancel(sw)} title="Cancel switch" t={t} tone="danger"><X size={15} /></IconButton>
+        </div>
+      )}
     </article>
   );
 }
@@ -684,10 +687,32 @@ export default function DeadSwitch() {
   }
 
   async function cancelSwitch(sw) {
-    if (sw.email) sendSwitchEmail(sw, "cancelled");
-    const { error } = await supabase.from("switches").delete().eq("id", sw.id);
+    if (sw.contract_id !== null && sw.contract_id !== undefined && isConnected && walletClient) {
+      try {
+        showToast("Cancelling on-chain... confirm in wallet");
+        const hash = await walletClient.writeContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "cancel",
+          args: [BigInt(sw.contract_id)],
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
+        showToast("USDC returned to your wallet ✅");
+      } catch (err) {
+        console.error("Cancel error:", err);
+        return showToast("On-chain cancel failed — plan was not cancelled");
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("switches")
+      .update({ status: "cancelled" })
+      .eq("id", sw.id)
+      .select()
+      .single();
     if (error) return showToast(error.message || "Failed to cancel plan");
-    setSwitches((p) => p.filter((s) => s.id !== sw.id));
+    setSwitches((p) => p.map((s) => s.id === sw.id ? data : s));
+    if (sw.email) sendSwitchEmail({ ...sw, status: "cancelled" }, "cancelled");
     showToast("Backup plan cancelled");
   }
 
