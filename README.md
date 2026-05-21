@@ -1,36 +1,179 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DeadSwitch 🔴
 
-## Getting Started
+> **Your crypto backup agent. Built on Arc Testnet.**
 
-First, run the development server:
+DeadSwitch is a trustless asset recovery protocol that automatically moves your crypto to a backup wallet if you go silent — just a smart contract that fires when conditions are met.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## The Problem
+
+Every day, crypto is lost forever because:
+
+- People lose access to their wallets
+- Phones get stolen or lost and seed phrases disappear
+- No backup plan was set up in time
+
+There is no reliable, trustless way to say: *"If I go silent for 30 days, send my assets here."*
+
+DeadSwitch solves that.
+
+---
+
+## How It Works
+
+1. **Create a backup plan** — Set a destination wallet, pick a check-in timer (2 days to 365), and deposit USDC into the vault
+2. **Check in regularly** — One tap resets the clock. As long as you check in, nothing happens
+3. **Go silent — it activates** — If you stop checking in, the contract automatically sends your USDC to your backup address
+4. **Get warned before it fires** — Add your email and DeadSwitch warns you 7 days before your timer expires
+
+---
+
+## Real Use Cases
+
+- **Lost wallet recovery** — Set a backup before disaster strikes
+- **Crypto inheritance** — Ensure family or trusted contacts receive assets
+- **Anti-kidnapping protection** — Assets auto-migrate if you can't check in
+- **Corporate treasury guard** — Protect team funds if a key holder goes offline
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js + React |
+| Styling | Inline CSS with dark/light theme |
+| Auth | Supabase Auth (email + magic link) |
+| Database | Supabase (PostgreSQL + RLS) |
+| Wallet | RainbowKit + wagmi + viem |
+| Smart Contract | Solidity 0.8.19 |
+| Network | Arc Testnet (Chain ID: 5042002) |
+| Gas Token | USDC (native on Arc) |
+| Automation | Vercel Cron + Chainlink-ready (`checkUpkeep` / `performUpkeep`) |
+| Email Alerts | Resend |
+| Deployment | Vercel |
+
+---
+
+## Smart Contract
+
+**DeadSwitchVault.sol** — deployed on Arc Testnet
+
+```
+Contract: 0xCfc32d97124275422112D62bF55f4e72D0D88572
+Network:  Arc Testnet (Chain ID: 5042002)
+Explorer: https://testnet.arcscan.app/address/0xCfc32d97124275422112D62bF55f4e72D0D88572
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Key Functions
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+| Function | Description |
+|---|---|
+| `createSwitch(backup, amount, days)` | Deposits USDC and creates a timed vault |
+| `checkIn(id, days)` | Resets the timer — proves you're still alive |
+| `execute(id)` | Releases USDC to backup wallet after timer expires |
+| `cancel(id)` | Owner withdraws USDC and cancels the plan |
+| `checkUpkeep()` | Chainlink Automation compatible — checks for expired switches |
+| `performUpkeep()` | Chainlink Automation compatible — executes expired switches |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The contract is fully **Chainlink Automation ready**. Once Chainlink deploys on Arc mainnet, upkeep registration will replace the current cron-based execution with fully decentralized automation.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Why Arc?
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **USDC as native gas** — Users never need to manage volatile gas tokens. One asset. Simple.
+- **Circle infrastructure** — Built on the same rails as the world's most trusted stablecoin
+- **EVM compatible** — Full Solidity support, familiar tooling
+- **Early ecosystem** — DeadSwitch is one of the first real utility protocols on Arc
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Live Demo
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+🔗 **[deadswitch.vercel.app](https://dead-switch.vercel.app)**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+To test:
+1. Connect your wallet on Arc Testnet
+2. Get testnet USDC from [faucet.circle.com](https://faucet.circle.com)
+3. Create a backup plan
+4. Check in to reset your timer
+
+---
+
+## Running Locally
+
+```bash
+# Clone the repo
+git clone https://github.com/bludwithstyle061/DeadSwitch.git
+cd DeadSwitch
+
+# Install dependencies
+npm install
+
+# Add environment variables
+cp .env.example .env.local
+# Fill in your keys
+
+# Run dev server
+npm run dev
+```
+
+### Environment Variables
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
+NEXT_PUBLIC_CONTRACT_ADDRESS=0xCfc32d97124275422112D62bF55f4e72D0D88572
+RESEND_API_KEY=
+CRON_SECRET=
+EXECUTOR_PRIVATE_KEY=
+```
+
+---
+
+## Deploying the Contract
+
+```bash
+# Install Hardhat dependencies
+npm install --save-dev hardhat
+
+# Compile
+npx hardhat compile
+
+# Deploy to Arc Testnet
+npx hardhat run scripts/deploy.js --network arcTestnet
+
+# Verify on explorer
+npx hardhat verify --network arcTestnet YOUR_CONTRACT_ADDRESS "0x3600000000000000000000000000000000000000"
+```
+
+---
+
+## Roadmap
+
+- [x] Smart contract deployed on Arc Testnet
+- [x] USDC vault with approve + transferFrom flow
+- [x] Frontend with wallet connection
+- [x] Email alerts at 7 days remaining
+- [x] Supabase auth — each user sees only their own switches
+- [x] Chainlink-ready contract (checkUpkeep / performUpkeep)
+- [x] Vercel cron job for automated execution
+- [ ] Chainlink Automation registration (pending Arc support)
+- [ ] Multiple switches per user with staggered timers
+- [ ] Arc mainnet deployment
+- [ ] Grant application to Arc ecosystem
+
+---
+
+## Builder
+
+Built by **[@bludwithstyle](https://twitter.com/bludwithstyle)** — building in public from Lagos 
+
+---
+
+## License
+
+MIT
