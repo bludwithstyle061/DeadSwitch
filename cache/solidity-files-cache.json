@@ -36,6 +36,41 @@
         "DeadSwitchVault",
         "IERC20"
       ]
+    },
+    "/Users/bludsmacbook/deadswitch/contracts/MockUSDC.sol": {
+      "lastModificationDate": 1779729773308,
+      "contentHash": "bc7b79ba6b8037c77df0621ad50c3c04",
+      "sourceName": "contracts/MockUSDC.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "MockUSDC"
+      ]
     }
   }
 }
