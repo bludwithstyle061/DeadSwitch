@@ -55,11 +55,49 @@ const USDC_ABI = [
   { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable", type: "function" },
 ];
 
-const TIMER_PRESETS = [2, 5, 30, 60, 90, 180];
+const TIMER_PRESETS = {
+  minutes: [1, 2, 5, 10, 30, 60],
+  days: [2, 5, 30, 60, 90, 180],
+};
+const WARNING_SECONDS = 2 * 60;
 
 function truncateWallet(value = "") {
   if (!value || value.length < 12) return value;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function timerUnit(sw) {
+  return sw?.timer_unit || "days";
+}
+
+function durationSeconds(sw) {
+  const value = Number(sw?.days || 1);
+  return timerUnit(sw) === "minutes" ? value * 60 : value * 86400;
+}
+
+function secondsLeft(sw, now = new Date()) {
+  if (!sw || sw.status === "triggered" || sw.status === "cancelled") return 0;
+  if (sw.status === "paused") return timerUnit(sw) === "minutes" ? Math.max(0, Number(sw.remaining || 0)) * 60 : Math.max(0, Number(sw.remaining || 0)) * 86400;
+
+  const duration = durationSeconds(sw);
+  const startedAt = sw.created_at ? new Date(sw.created_at).getTime() : now.getTime();
+  const elapsed = Math.max(0, Math.floor((now.getTime() - startedAt) / 1000));
+  return Math.max(0, duration - elapsed);
+}
+
+function withLiveTimer(sw, now) {
+  const remainingSeconds = secondsLeft(sw, now);
+  const unit = timerUnit(sw);
+  const remaining = unit === "minutes" ? Math.ceil(remainingSeconds / 60) : Math.ceil(remainingSeconds / 86400);
+  const status = sw.status === "active" && remainingSeconds <= WARNING_SECONDS ? "warning" : sw.status;
+  return { ...sw, remaining, remainingSeconds, status, timer_unit: unit };
+}
+
+function timerLabel(sw) {
+  const unit = timerUnit(sw);
+  const value = Number(sw?.remaining || 0);
+  if (value <= 0) return "READY TO EXECUTE";
+  return `${value} ${unit === "minutes" ? "MIN" : value === 1 ? "DAY" : "DAYS"} REMAINING`;
 }
 
 function statusMeta(status, t) {
@@ -118,12 +156,22 @@ function StatusPill({ status, t }) {
   );
 }
 
-function ProgressBar({ remaining, days, t }) {
-  const pct   = Math.max(0, Math.min(100, (Number(remaining) / Number(days || 1)) * 100));
+function ProgressBar({ sw, remaining, days, t }) {
+  const total = sw ? durationSeconds(sw) : Number(days || 1);
+  const left = sw ? Number(sw.remainingSeconds || 0) : Number(remaining || 0);
+  const pct   = Math.max(0, Math.min(100, (left / Number(total || 1)) * 100));
   const color = pct <= 15 ? t.danger : pct <= 35 ? t.warn : t.accent;
   return (
-    <div style={{ height: 7, borderRadius: 999, background: t.surfaceUp, overflow: "hidden", border: `1px solid ${t.border}` }}>
-      <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${color}, ${t.accent2})`, boxShadow: `0 0 18px ${color}55` }} />
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 7 }}>
+        <strong style={{ color, fontSize: 13, letterSpacing: "0.03em", fontWeight: 950 }}>
+          {sw ? timerLabel(sw) : Number(remaining) <= 0 ? "READY TO EXECUTE" : `${remaining} REMAINING`}
+        </strong>
+        <span style={{ color: t.textMuted, fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{Math.round(pct)}%</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 999, background: t.surfaceUp, overflow: "hidden", border: `1px solid ${t.border}` }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${color}, ${t.accent2})`, boxShadow: `0 0 18px ${color}55`, transition: "width 0.4s ease" }} />
+      </div>
     </div>
   );
 }
@@ -297,7 +345,7 @@ function AuthScreen({ t, initialMode = "signin", onPasswordResetComplete }) {
 /* ── AGENT CONSOLE ───────────────────────────────────────────── */
 function AgentConsole({ switches, nextSwitch, t, isMobile }) {
   const active   = switches.filter((s) => s.status==="active" || s.status==="warning").length;
-  const warnings = switches.filter((s) => s.status==="warning" || Number(s.remaining)<=7).length;
+  const warnings = switches.filter((s) => s.status==="warning" || Number(s.remainingSeconds)<=WARNING_SECONDS).length;
   const rows = [
     { icon: Radar,  label: "Status",   value: active ? "Watching" : "Not set",                color: t.accent  },
     { icon: Bell,   label: "Heads-up", value: warnings ? `${warnings} due soon` : "All clear", color: warnings ? t.warn : t.accent },
@@ -326,12 +374,12 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
           <div style={{ borderRadius: 18, background: t.accentLow, border: `1px solid ${t.accent}30`, padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: isMobile ? 110 : 0 }}>
             <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 850, letterSpacing: "0.12em", margin: 0 }}>NEXT REMINDER</p>
             <div>
-              <p style={{ color: t.accent, fontSize: isMobile ? 34 : 40, lineHeight: 1, fontWeight: 900, margin: 0, fontFamily: "'DM Mono', monospace" }}>{nextSwitch ? nextSwitch.remaining : "--"}</p>
-              <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 850, letterSpacing: "0.14em", margin: "5px 0 0" }}>DAYS</p>
+              <p style={{ color: nextSwitch && Number(nextSwitch.remainingSeconds)<=WARNING_SECONDS ? t.danger : t.accent, fontSize: isMobile ? 34 : 40, lineHeight: 1, fontWeight: 900, margin: 0, fontFamily: "'DM Mono', monospace" }}>{nextSwitch ? nextSwitch.remaining : "--"}</p>
+              <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 850, letterSpacing: "0.14em", margin: "5px 0 0" }}>{nextSwitch?.timer_unit === "minutes" ? "MIN" : "DAYS"}</p>
             </div>
           </div>
         </div>
-        <div style={{ marginBottom: 16 }}><ProgressBar remaining={nextSwitch?.remaining||0} days={nextSwitch?.days||1} t={t} /></div>
+        <div style={{ marginBottom: 16 }}><ProgressBar sw={nextSwitch} remaining={nextSwitch?.remaining||0} days={nextSwitch?.days||1} t={t} /></div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
           {rows.map((row) => (
             <div key={row.label} style={{ padding: isMobile ? 12 : 14, borderRadius: 16, border: `1px solid ${t.border}`, background: t.panel }}>
@@ -351,8 +399,10 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
   const meta = statusMeta(sw.status, t);
   const isFinal = sw.status === "cancelled" || sw.status === "triggered";
   const isOnChain = sw.contract_id !== null && sw.contract_id !== undefined;
+  const isClose = Number(sw.remainingSeconds) <= WARNING_SECONDS && !isFinal;
+  const timerColor = isClose ? t.danger : meta.color;
   return (
-    <article style={{ background: `linear-gradient(180deg, ${t.surface}, ${t.panel})`, border: `1px solid ${Number(sw.remaining)<=7 ? `${t.warn}45` : t.border}`, borderRadius: 18, padding: 18, boxShadow: "0 12px 40px rgba(0,0,0,0.08)", position: "relative", overflow: "hidden" }}>
+    <article style={{ background: `linear-gradient(180deg, ${t.surface}, ${t.panel})`, border: `1px solid ${isClose ? `${t.danger}70` : t.border}`, borderRadius: 18, padding: 18, boxShadow: isClose ? `0 18px 50px ${t.danger}18` : "0 12px 40px rgba(0,0,0,0.08)", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${meta.color}, transparent)` }} />
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
         <div style={{ minWidth: 0 }}>
@@ -373,11 +423,11 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
           <p style={{ color: t.textSub, fontSize: 12, margin: 0, fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <p style={{ color: meta.color, fontSize: 28, lineHeight: 1, margin: 0, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>{sw.remaining}</p>
-          <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", margin: "4px 0 0" }}>DAYS</p>
+          <p style={{ color: timerColor, fontSize: 28, lineHeight: 1, margin: 0, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>{sw.remaining}</p>
+          <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", margin: "4px 0 0" }}>{sw.timer_unit === "minutes" ? "MIN LEFT" : "DAYS LEFT"}</p>
         </div>
       </div>
-      <div style={{ margin: "16px 0" }}><ProgressBar remaining={sw.remaining} days={sw.days} t={t} /></div>
+      <div style={{ margin: "16px 0" }}><ProgressBar sw={sw} remaining={sw.remaining} days={sw.days} t={t} /></div>
       <div style={{ minHeight: 48, padding: 13, borderRadius: 14, border: `1px solid ${t.border}`, background: t.bg }}>
         <p style={{ color: t.textSub, fontSize: 13, lineHeight: 1.6, margin: 0 }}>{sw.note ? `"${sw.note}"` : "No personal message added."}</p>
       </div>
@@ -407,6 +457,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
   const [form, setForm] = useState({
     label:       initialSwitch?.label       || "",
     days:        initialSwitch?.days        || 30,
+    timer_unit:  initialSwitch?.timer_unit   || "days",
     destination: initialSwitch?.destination || "",
     send_all:    initialSwitch?.send_all    ?? true,
     amount:      initialSwitch?.amount      || "",
@@ -460,14 +511,21 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
         <input style={inp} value={form.label} placeholder="e.g. Emergency recovery" onChange={(e) => set("label", e.target.value)} />
 
         <label style={lbl}>CHECK-IN TIMER</label>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 7 }}>
-          {TIMER_PRESETS.map((d) => (
-            <button key={d} disabled={isOnChainEdit} onClick={() => set("days", d)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${Number(form.days)===d ? t.accent : t.border}`, background: Number(form.days)===d ? t.accentLow : t.bg, color: Number(form.days)===d ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.55 : 1, fontWeight: 800, fontSize: 13 }}>
-              {d}d
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          {["days", "minutes"].map((unit) => (
+            <button key={unit} disabled={isOnChainEdit} onClick={() => set("timer_unit", unit)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${form.timer_unit===unit ? t.accent : t.border}`, background: form.timer_unit===unit ? t.accentLow : t.bg, color: form.timer_unit===unit ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.55 : 1, fontWeight: 850, fontSize: 13, textTransform: "capitalize" }}>
+              {unit}
             </button>
           ))}
         </div>
-        <input disabled={isOnChainEdit} style={{ ...inp, marginTop: 8, opacity: isOnChainEdit ? 0.55 : 1, cursor: isOnChainEdit ? "not-allowed" : "text" }} type="number" min="1" max="3650" value={form.days} placeholder="Custom days" onChange={(e) => set("days", e.target.value)} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 7 }}>
+          {TIMER_PRESETS[form.timer_unit].map((d) => (
+            <button key={d} disabled={isOnChainEdit} onClick={() => set("days", d)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${Number(form.days)===d ? t.accent : t.border}`, background: Number(form.days)===d ? t.accentLow : t.bg, color: Number(form.days)===d ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.55 : 1, fontWeight: 800, fontSize: 13 }}>
+              {d}{form.timer_unit === "minutes" ? "m" : "d"}
+            </button>
+          ))}
+        </div>
+        <input disabled={isOnChainEdit} style={{ ...inp, marginTop: 8, opacity: isOnChainEdit ? 0.55 : 1, cursor: isOnChainEdit ? "not-allowed" : "text" }} type="number" min="1" max={form.timer_unit === "minutes" ? "10080" : "3650"} value={form.days} placeholder={`Custom ${form.timer_unit}`} onChange={(e) => set("days", e.target.value)} />
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 7px" }}>
           <span style={{ color: t.textMuted, fontSize: 11, letterSpacing: "0.12em", fontWeight: 850 }}>AMOUNT (USDC)</span>
@@ -495,7 +553,7 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
         <input disabled={isOnChainEdit} style={{ ...inp, fontFamily: "'DM Mono', monospace", opacity: isOnChainEdit ? 0.55 : 1, cursor: isOnChainEdit ? "not-allowed" : "text" }} value={form.destination} placeholder="0x..." onChange={(e) => set("destination", e.target.value)} />
 
         <label style={lbl}>ALERT EMAIL</label>
-        <input style={inp} type="email" value={form.email} placeholder="you@example.com (warned 7 days before)" onChange={(e) => set("email", e.target.value)} />
+        <input style={inp} type="email" value={form.email} placeholder="you@example.com (warned when close)" onChange={(e) => set("email", e.target.value)} />
 
         <label style={lbl}>PERSONAL MESSAGE TO RECIPIENT</label>
         <textarea style={{ ...inp, minHeight: 96, lineHeight: 1.6, resize: "none" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
@@ -514,10 +572,10 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
 /* ── HOW IT WORKS MODAL ──────────────────────────────────────── */
 function HowItWorksModal({ onClose, onCreateClick, t }) {
   const steps = [
-    { step: "01", title: "Create a backup plan",      desc: "Set a destination wallet, pick a check-in timer, and enter the USDC amount. Your switch deploys on Arc testnet." },
+    { step: "01", title: "Create a backup plan",      desc: "Set a destination wallet, pick a days or minutes check-in timer, and enter the USDC amount. Your switch deploys on Arc testnet." },
     { step: "02", title: "Check in regularly",         desc: "As long as you check in before your timer runs out, nothing happens. One tap resets the clock on-chain." },
     { step: "03", title: "Go silent — it activates",   desc: "If you stop checking in, Chainlink Automation triggers your contract and sends USDC to your backup address. No middleman." },
-    { step: "04", title: "Get warned before it fires", desc: "Add your email and DeadSwitch will warn you at 7 days remaining. You'll never be caught off guard." },
+    { step: "04", title: "Get warned before it fires", desc: "Add your email and DeadSwitch will warn you when the deadline is close. You'll never be caught off guard." },
   ];
   return (
     <div onClick={(e) => e.target===e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.72)", backdropFilter: "blur(18px)", display: "grid", placeItems: "center", padding: 16 }}>
@@ -629,9 +687,12 @@ export default function DeadSwitch() {
   const isTablet      = width < 980;
   const px            = isMobile ? 18 : width < 1180 ? 28 : 34;
   const heroTitleSize = isMobile ? "clamp(36px,10.5vw,52px)" : isTablet ? "clamp(48px,7vw,64px)" : "clamp(52px,4.7vw,68px)";
-  const active        = switches.filter((s) => s.status !== "paused").length;
-  const warnings      = switches.filter((s) => s.status === "warning" || Number(s.remaining) <= 7).length;
-  const nextSwitch    = useMemo(() => switches.filter((s) => s.status !== "paused").slice().sort((a, b) => Number(a.remaining) - Number(b.remaining))[0], [switches]);
+  const timedSwitches = useMemo(() => switches.map((sw) => withLiveTimer(sw, now || new Date())), [switches, now]);
+  const activeSwitches = useMemo(() => timedSwitches.filter((s) => s.status !== "cancelled" && s.status !== "triggered"), [timedSwitches]);
+  const historySwitches = useMemo(() => timedSwitches.filter((s) => s.status === "cancelled" || s.status === "triggered"), [timedSwitches]);
+  const active        = activeSwitches.filter((s) => s.status !== "paused").length;
+  const warnings      = activeSwitches.filter((s) => s.status === "warning" || Number(s.remainingSeconds) <= WARNING_SECONDS).length;
+  const nextSwitch    = useMemo(() => activeSwitches.filter((s) => s.status !== "paused").slice().sort((a, b) => Number(a.remaining) - Number(b.remaining))[0], [activeSwitches]);
 
   function showToast(msg, timeout = 3600) { setAlertMsg(msg); setTimeout(() => setAlertMsg(null), timeout); }
   async function handleSignOut() { await supabase.auth.signOut(); showToast("Signed out"); }
@@ -646,7 +707,9 @@ export default function DeadSwitch() {
   // ── Create switch: approve USDC → createSwitch on-chain → save to Supabase ──
   async function createSwitch(form, balance) {
     const days = Number(form.days);
-    if (!days || days < 1) return showToast("Timer must be at least 1 day");
+    if (!days || days < 1) return showToast("Timer must be at least 1");
+    const timerUnit = form.timer_unit || "days";
+    const timerSeconds = timerUnit === "minutes" ? days * 60 : days * 86400;
     if (!CONTRACT_ADDRESS) return showToast("Contract address is missing. Check your environment variables.");
     if (!isConnected || !walletClient || !publicClient) return showToast("Connect your wallet before creating a backup plan");
 
@@ -682,7 +745,7 @@ export default function DeadSwitch() {
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: "createSwitch",
-        args: [form.destination, usdcAmount, BigInt(days)],
+        args: [form.destination, usdcAmount, BigInt(timerSeconds)],
       });
 
       showToast("Transaction submitted, waiting for confirmation...");
@@ -705,7 +768,7 @@ export default function DeadSwitch() {
     }
 
     const { data, error } = await supabase.from("switches").insert([{
-      label: form.label, days, remaining: days,
+      label: form.label, days, remaining: days, timer_unit: timerUnit,
       destination: form.destination,
       chain: "Arc Testnet", token: "USDC",
       send_all: form.send_all,
@@ -725,7 +788,7 @@ export default function DeadSwitch() {
   async function updateSwitch(form) {
     if (!editingSwitch) return;
     const days = Number(form.days);
-    if (!days || days < 1) return showToast("Timer must be at least 1 day");
+    if (!days || days < 1) return showToast("Timer must be at least 1");
 
     const isOnChain = editingSwitch.contract_id !== null && editingSwitch.contract_id !== undefined;
     const updatePayload = isOnChain ? {
@@ -733,13 +796,14 @@ export default function DeadSwitch() {
       note: form.note,
       email: form.email || null,
     } : {
-      label: form.label, days, remaining: days,
+      label: form.label, days, remaining: days, timer_unit: form.timer_unit || "days",
       destination: form.destination,
       chain: "Arc Testnet", token: "USDC",
       send_all: form.send_all,
       amount: form.send_all ? null : form.amount,
       note: form.note, email: form.email || null,
       status: editingSwitch.status === "triggered" ? "active" : editingSwitch.status,
+      created_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase.from("switches").update(updatePayload).eq("id", editingSwitch.id).select().single();
@@ -762,7 +826,7 @@ export default function DeadSwitch() {
           address: CONTRACT_ADDRESS,
           abi: CONTRACT_ABI,
           functionName: "checkIn",
-          args: [BigInt(sw.contract_id), BigInt(sw.days)],
+          args: [BigInt(sw.contract_id), BigInt(durationSeconds(sw))],
         });
         await publicClient.waitForTransactionReceipt({ hash });
         showToast("On-chain check-in confirmed ✅");
@@ -772,7 +836,7 @@ export default function DeadSwitch() {
       }
     }
 
-    const { data, error } = await supabase.from("switches").update({ remaining: sw.days, status: "active" }).eq("id", id).select().single();
+    const { data, error } = await supabase.from("switches").update({ remaining: sw.days, status: "active", created_at: new Date().toISOString() }).eq("id", id).select().single();
     if (error) return showToast(error.message || "Check-in failed");
     setSwitches((p) => p.map((s) => s.id === id ? data : s));
     if (!sw.contract_id) showToast("Check-in confirmed");
@@ -826,7 +890,7 @@ export default function DeadSwitch() {
 
   useEffect(() => {
     switches.forEach((sw) => {
-      if (!sw.email || sw.status !== "active" || Number(sw.remaining) > 7) return;
+      if (!sw.email || sw.status !== "active" || Number(sw.remainingSeconds) > WARNING_SECONDS) return;
       const key = `deadswitch-warning-${sw.id}-${sw.remaining}`;
       if (localStorage.getItem(key)) return;
       localStorage.setItem(key, "sent");
@@ -929,7 +993,7 @@ export default function DeadSwitch() {
             </div>
           </div>
           <div style={{ width: "100%", display: "flex", justifyContent: isTablet ? "flex-start" : "flex-end", alignSelf: "start", paddingTop: isTablet ? 0 : 4 }}>
-            <AgentConsole switches={switches} nextSwitch={nextSwitch} t={t} isMobile={isMobile} />
+            <AgentConsole switches={activeSwitches} nextSwitch={nextSwitch} t={t} isMobile={isMobile} />
           </div>
         </section>
 
@@ -945,9 +1009,9 @@ export default function DeadSwitch() {
           </div>
           {loading ? (
             <div style={{ padding: 50, textAlign: "center", color: t.textSub }}>Loading switches...</div>
-          ) : switches.length ? (
+          ) : activeSwitches.length ? (
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: 14 }}>
-              {switches.map((sw) => (
+              {activeSwitches.map((sw) => (
                 <SwitchCard key={sw.id} sw={sw} onCheckin={checkIn} onPause={pauseSwitch} onCancel={cancelSwitch} onAlert={sendAlert} onEdit={(item) => { setEditingSwitch(item); setShowModal(true); }} t={t} />
               ))}
             </div>
@@ -959,6 +1023,27 @@ export default function DeadSwitch() {
               <button onClick={() => { setEditingSwitch(null); setShowModal(true); }} style={{ padding: "12px 18px", borderRadius: 13, border: `1px solid ${t.accent}35`, background: t.accentLow, color: t.accent, cursor: "pointer", fontWeight: 850 }}>
                 Create backup plan
               </button>
+            </div>
+          )}
+        </section>
+
+        <section style={{ marginTop: isMobile ? 34 : 46 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 20 }}>
+            <div>
+              <p style={{ color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.14em", margin: "0 0 8px" }}>HISTORY</p>
+              <h2 style={{ color: t.text, fontSize: isMobile ? 22 : 28, margin: 0, letterSpacing: "-0.035em" }}>Executed and cancelled</h2>
+            </div>
+            <span style={{ color: t.textMuted, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{historySwitches.length} archived</span>
+          </div>
+          {historySwitches.length ? (
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: 14 }}>
+              {historySwitches.map((sw) => (
+                <SwitchCard key={sw.id} sw={sw} onCheckin={checkIn} onPause={pauseSwitch} onCancel={cancelSwitch} onAlert={sendAlert} onEdit={(item) => { setEditingSwitch(item); setShowModal(true); }} t={t} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: "28px 20px", borderRadius: 18, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 13 }}>
+              No executed or cancelled switches yet.
             </div>
           )}
         </section>

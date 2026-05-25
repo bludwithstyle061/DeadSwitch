@@ -57,7 +57,7 @@ export const CONTRACT_ABI = [
   {
     "inputs": [
       { "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "internalType": "uint256", "name": "_days", "type": "uint256" }
+      { "internalType": "uint256", "name": "_durationSeconds", "type": "uint256" }
     ],
     "name": "checkIn",
     "outputs": [],
@@ -78,7 +78,7 @@ export const CONTRACT_ABI = [
     "inputs": [
       { "internalType": "address", "name": "_backup", "type": "address" },
       { "internalType": "uint256", "name": "_amount", "type": "uint256" },
-      { "internalType": "uint256", "name": "_days", "type": "uint256" }
+      { "internalType": "uint256", "name": "_durationSeconds", "type": "uint256" }
     ],
     "name": "createSwitch",
     "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],

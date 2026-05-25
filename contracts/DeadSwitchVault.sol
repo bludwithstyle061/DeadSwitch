@@ -30,12 +30,13 @@ contract DeadSwitchVault {
     event Cancelled(uint256 indexed id, address indexed owner);
     event CheckIn(uint256 indexed id, address indexed owner, uint256 newDeadline);
 
-    function createSwitch(address _backup, uint256 _amount, uint256 _days) external returns (uint256) {
+    function createSwitch(address _backup, uint256 _amount, uint256 _durationSeconds) external returns (uint256) {
         require(_backup != address(0), "Invalid backup");
         require(_amount > 0, "Amount must be greater than 0");
+        require(_durationSeconds > 0, "Timer required");
         usdc.transferFrom(msg.sender, address(this), _amount);
         switchCount++;
-        uint256 deadline = block.timestamp + (_days * 1 days);
+        uint256 deadline = block.timestamp + _durationSeconds;
         switches[switchCount] = Switch({
             owner: msg.sender, backup: _backup, amount: _amount,
             deadline: deadline, executed: false, cancelled: false
@@ -64,12 +65,13 @@ contract DeadSwitchVault {
         emit Cancelled(id, sw.owner);
     }
 
-    function checkIn(uint256 id, uint256 _days) external {
+    function checkIn(uint256 id, uint256 _durationSeconds) external {
         Switch storage sw = switches[id];
         require(msg.sender == sw.owner, "Not owner");
         require(!sw.executed, "Already executed");
         require(!sw.cancelled, "Cancelled");
-        sw.deadline = block.timestamp + (_days * 1 days);
+        require(_durationSeconds > 0, "Timer required");
+        sw.deadline = block.timestamp + _durationSeconds;
         emit CheckIn(id, sw.owner, sw.deadline);
     }
 

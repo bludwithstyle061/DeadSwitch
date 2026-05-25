@@ -54,9 +54,9 @@ export async function POST(request) {
     },
     warning: {
       eyebrow: "Deadline warning",
-      subject: `DeadSwitch: "${label || "Untitled switch"}" activates in ${remaining} days`,
+      subject: `DeadSwitch: "${label || "Untitled switch"}" activates in ${remaining} minutes`,
       body: `
-        <p>Your switch <strong>${safeLabel}</strong> will activate in <strong>${safeRemaining} days</strong>.</p>
+        <p>Your switch <strong>${safeLabel}</strong> will activate in <strong>${safeRemaining} minutes</strong>.</p>
         <p>If you're still here, log in and check in to reset your timer.</p>
       `,
       cta: "Check In Now",

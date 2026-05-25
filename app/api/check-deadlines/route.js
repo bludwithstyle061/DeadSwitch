@@ -23,9 +23,15 @@ function normalizePrivateKey(value) {
   return value.startsWith("0x") ? value : `0x${value}`;
 }
 
-function daysFromSeconds(seconds) {
+function timerUnit(sw) {
+  return sw?.timer_unit || "days";
+}
+
+function remainingFromSeconds(seconds, sw) {
   if (seconds <= 0n) return 0;
-  return Math.ceil(Number(seconds) / 86400);
+  return timerUnit(sw) === "minutes"
+    ? Math.ceil(Number(seconds) / 60)
+    : Math.ceil(Number(seconds) / 86400);
 }
 
 export async function GET(request) {
@@ -68,10 +74,10 @@ export async function GET(request) {
           args: [BigInt(sw.contract_id)],
         });
 
-        const remaining = daysFromSeconds(secondsRemaining);
+        const remaining = remainingFromSeconds(secondsRemaining, sw);
 
         if (remaining > 0) {
-          const nextStatus = remaining <= 7 ? "warning" : "active";
+          const nextStatus = Number(secondsRemaining) <= 120 ? "warning" : "active";
           await supabase
             .from("switches")
             .update({ remaining, status: nextStatus })
