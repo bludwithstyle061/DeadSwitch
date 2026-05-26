@@ -1,7 +1,5 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -19,11 +17,12 @@ function appUrl() {
 }
 
 export async function POST(request) {
-  const { email, label, remaining, type = "warning" } = await request.json();
-
   if (!process.env.RESEND_API_KEY) {
     return Response.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
   }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const { email, label, remaining, type = "warning" } = await request.json();
 
   if (!email) {
     return Response.json({ error: "Missing recipient email" }, { status: 400 });
