@@ -174,6 +174,15 @@ Built by **[@bludwithstyle](https://twitter.com/bludwithstyle)** — building in
 
 ---
 
+## Builder Notes
+
+**Chainlink Automation:** Not yet live on Arc Testnet, which meant building a cron-based workaround instead of fully decentralized automation. This is the single biggest missing piece for a protocol like DeadSwitch — automated execution is the entire value proposition. Once Chainlink lands on Arc, DeadSwitch becomes genuinely trustless.
+
+**Cron workaround:** Vercel's hobby plan only supports daily cron jobs, so I had to integrate cron-job.org for minute-level execution. A native Arc keeper or automation service would eliminate this friction entirely.
+
+**Minutes timer:** Added specifically so users can verify the full execution flow in 1-2 minutes instead of waiting days. Essential for testing and demoing the automation.
+
+
 ## License
 
 MIT
