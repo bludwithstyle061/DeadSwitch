@@ -57,9 +57,10 @@ export async function GET(request) {
       .from("switches")
       .select("*")
       .in("status", ["active", "warning"])
-      .not("contract_id", "is", null);
+.not("contract_id", "is", null);
 
-    if (error) throw error;
+if (error) throw error;
+console.log("Found switches:", JSON.stringify(switches?.map(s => ({ id: s.id, contract_id: s.contract_id, status: s.status, timer_unit: s.timer_unit }))));
 
     let executed = 0;
     let synced = 0;
