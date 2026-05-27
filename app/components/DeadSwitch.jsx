@@ -1036,11 +1036,23 @@ export default function DeadSwitch() {
             <span style={{ color: t.textMuted, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{historySwitches.length} archived</span>
           </div>
           {historySwitches.length ? (
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: 14 }}>
-              {historySwitches.map((sw) => (
-                <SwitchCard key={sw.id} sw={sw} onCheckin={checkIn} onPause={pauseSwitch} onCancel={cancelSwitch} onAlert={sendAlert} onEdit={(item) => { setEditingSwitch(item); setShowModal(true); }} t={t} />
-              ))}
-            </div>
+  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    {historySwitches.map((sw) => (
+      <div key={sw.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: sw.status === "triggered" ? t.accent : t.danger, flexShrink: 0 }} />
+          <div>
+            <p style={{ color: t.text, fontWeight: 800, fontSize: 14, margin: 0 }}>{sw.label}</p>
+            <p style={{ color: t.textMuted, fontSize: 11, margin: "3px 0 0", fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <StatusPill status={sw.status} t={t} />
+          <p style={{ color: t.textMuted, fontSize: 10, margin: "5px 0 0", fontFamily: "'DM Mono', monospace" }}>{new Date(sw.created_at).toLocaleDateString()}</p>
+        </div>
+      </div>
+    ))}
+  </div>
           ) : (
             <div style={{ padding: "28px 20px", borderRadius: 18, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 13 }}>
               No executed or cancelled switches yet.
