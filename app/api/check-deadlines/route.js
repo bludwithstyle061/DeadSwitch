@@ -53,12 +53,11 @@ export async function GET(request) {
       transport: http("https://rpc.testnet.arc.network"),
     }).extend(publicActions);
 
-    const { data: switches, error } = await supabase
+ const { data: switches, error } = await supabase
   .from("switches")
-  .select("*");
-
-if (error) throw error;
-console.log("Found switches:", JSON.stringify(switches?.map(s => ({ id: s.id, contract_id: s.contract_id, status: s.status, timer_unit: s.timer_unit }))));
+  .select("*")
+  .in("status", ["active", "warning"])
+  .not("contract_id", "is", null);
 
     let executed = 0;
     let synced = 0;
