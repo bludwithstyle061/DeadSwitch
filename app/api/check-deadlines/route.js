@@ -76,7 +76,7 @@ export async function GET(request) {
 
         const remaining = remainingFromSeconds(secondsRemaining, sw);
 
-        if (remaining > 0) {
+        if (Number(secondsRemaining) > 10) {
           const nextStatus = Number(secondsRemaining) <= 120 ? "warning" : "active";
           await supabase
             .from("switches")
