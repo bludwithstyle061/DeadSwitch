@@ -41,10 +41,10 @@ export async function GET(request) {
   }
 
   try {
-    const supabase = createClient(
-      requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
-      requiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    );
+   const supabase = createClient(
+  requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+  requiredEnv("SUPABASE_SERVICE_ROLE_KEY")
+);
 
     const account = privateKeyToAccount(normalizePrivateKey(requiredEnv("EXECUTOR_PRIVATE_KEY")));
     const client = createWalletClient({
