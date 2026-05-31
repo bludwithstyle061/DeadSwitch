@@ -905,4 +905,4 @@ export default function DeadSwitch() {
       {showHowIt && <HowItWorksModal onClose={() => setShowHowIt(false)} onCreateClick={() => { setEditingSwitch(null); setShowModal(true); }} t={t} />}
     </div>
   );
-}
+} 
