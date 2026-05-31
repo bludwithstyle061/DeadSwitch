@@ -7,7 +7,8 @@ async function main() {
   const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 
   const DeadSwitchVault = await hre.ethers.getContractFactory("DeadSwitchVault");
-  const vault = await DeadSwitchVault.deploy(USDC_ADDRESS);
+  const PLATFORM_WALLET = "0x8EeC953a4E647F19ee7DACd84B5CDB69614ad62f";
+  const vault = await DeadSwitchVault.deploy(USDC_ADDRESS, PLATFORM_WALLET);
 
   await vault.waitForDeployment();
 
