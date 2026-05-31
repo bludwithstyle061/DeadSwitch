@@ -3,7 +3,7 @@
 import { supabase } from "../supabase";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectButton, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount, useBalance, useWalletClient, usePublicClient } from "wagmi";
 import { parseEventLogs, parseUnits } from "viem";
 import {
@@ -89,9 +89,9 @@ function formatMaxSwitches(value) {
   if (!value || Number(value) >= YEARLY_MAX_SWITCHES) return "Unlimited";
   return `${value}`;
 }
-function formatExpiry(expiresAt) {
-  if (!expiresAt || Number(expiresAt) === 0) return "No expiry";
-  return new Date(Number(expiresAt) * 1000).toLocaleDateString();
+function formatPlanExpiry(expiresAt) {
+  if (!expiresAt || Number(expiresAt) === 0) return "Forever";
+  return `Until ${new Date(Number(expiresAt) * 1000).toLocaleDateString()}`;
 }
 function formatMaxTimer(seconds) {
   const value = Number(seconds || 0);
@@ -328,22 +328,32 @@ function AuthScreen({ t, initialMode = "signin", onPasswordResetComplete }) {
 }
 
 /* SUBSCRIPTION */
-function SubscriptionPanel({ subscription, onSubscribe, subscribing, isConnected, t, dark, isMobile }) {
+function SubscriptionPanel({ subscription, onSubscribe, subscribing, isConnected, t, dark, isMobile, onClose, prompt }) {
   const currentTier = tierById(subscription?.tier || 0);
   const maxSwitches = subscription?.maxSwitches || currentTier.switches;
   const maxTimer = subscription?.maxTimer || currentTier.maxTimerSeconds;
   const activeCount = subscription?.activeSwitchCount || 0;
 
   return (
-    <section style={{ marginBottom: isMobile ? 34 : 46, animation: "fadeUp .45s ease" }}>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 18, marginBottom: 18, flexWrap: "wrap" }}>
+    <div onClick={(e) => e.target === e.currentTarget && onClose?.()} style={{ position: "fixed", inset: 0, zIndex: 240, display: "grid", placeItems: "center", padding: isMobile ? 12 : 22, background: dark ? "rgba(0,0,0,0.78)" : "rgba(15,23,35,0.34)", backdropFilter: "blur(22px)", animation: "fadeUp .2s ease" }}>
+    <section style={{ width: "100%", maxWidth: 1120, maxHeight: "92vh", overflow: "auto", padding: isMobile ? 18 : 24, borderRadius: 24, border: `1px solid ${t.borderUp}`, background: dark ? "rgba(10,13,22,0.98)" : "rgba(255,255,255,0.98)", boxShadow: t.shadow }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18, marginBottom: 18, flexWrap: "wrap" }}>
         <div>
           <p style={{ color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>PLAN ACCESS</p>
           <h2 style={{ color: t.text, fontSize: isMobile ? 24 : 32, margin: 0, letterSpacing: "-0.04em", fontWeight: 900 }}>Choose how much backup room you need</h2>
+          <p style={{ color: t.textSub, fontSize: 13, lineHeight: 1.6, margin: "8px 0 0", maxWidth: 580 }}>Pick Free to continue immediately, or choose a paid plan and your wallet will ask you to approve and pay in USDC.</p>
+          {prompt && (
+            <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 12, border: `1px solid ${t.warn}35`, background: t.warnLow, color: t.warn, fontSize: 12, fontWeight: 850, lineHeight: 1.45, maxWidth: 620 }}>
+              {prompt}
+            </div>
+          )}
         </div>
-        <div style={{ padding: "10px 13px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 12, fontFamily: "'DM Mono', monospace", lineHeight: 1.6 }}>
-          Current: <strong style={{ color: t.accent }}>{currentTier.name}</strong><br />
-          {activeCount}/{formatMaxSwitches(maxSwitches)} active · max {formatMaxTimer(maxTimer)}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ padding: "10px 13px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 12, fontFamily: "'DM Mono', monospace", lineHeight: 1.6 }}>
+            Current: <strong style={{ color: t.accent }}>{currentTier.name}</strong> · {formatPlanExpiry(subscription?.expiresAt)}<br />
+            {activeCount}/{formatMaxSwitches(maxSwitches)} active · max {formatMaxTimer(maxTimer)}
+          </div>
+          <IconButton onClick={onClose} title="Close plans" t={t}><X size={15} /></IconButton>
         </div>
       </div>
 
@@ -351,6 +361,7 @@ function SubscriptionPanel({ subscription, onSubscribe, subscribing, isConnected
         {TIERS.map((tier) => {
           const isCurrent = currentTier.id === tier.id;
           const isLoading = subscribing === tier.id;
+          const isLockedCurrent = isCurrent && tier.id !== 0;
           return (
             <article key={tier.key} style={{ position: "relative", minHeight: 250, padding: 18, borderRadius: 20, border: `1px solid ${tier.featured ? `${t.accent}45` : t.border}`, background: tier.featured ? `linear-gradient(160deg, ${t.accentLow}, ${t.panel})` : t.panel, boxShadow: tier.featured && dark ? "0 20px 70px rgba(0,212,168,0.10)" : "none", overflow: "hidden" }}>
               <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${tier.featured ? t.accent : t.borderUp}, transparent)` }} />
@@ -379,16 +390,17 @@ function SubscriptionPanel({ subscription, onSubscribe, subscribing, isConnected
               </div>
               <button
                 onClick={() => onSubscribe(tier)}
-                disabled={isCurrent || isLoading || (!isConnected && tier.price > 0)}
-                style={{ width: "100%", padding: "11px 12px", borderRadius: 12, border: `1px solid ${isCurrent ? t.border : t.accent}33`, background: isCurrent ? t.surfaceUp : tier.price ? "linear-gradient(135deg, #00D4A8, #6B7FFF)" : t.accentLow, color: isCurrent ? t.textMuted : tier.price ? "#000" : t.accent, cursor: isCurrent || isLoading || (!isConnected && tier.price > 0) ? "not-allowed" : "pointer", fontWeight: 900, fontSize: 13, opacity: isLoading || (!isConnected && tier.price > 0) ? 0.65 : 1 }}
+                disabled={isLockedCurrent || isLoading}
+                style={{ width: "100%", padding: "11px 12px", borderRadius: 12, border: `1px solid ${isLockedCurrent ? t.border : t.accent}33`, background: isLockedCurrent ? t.surfaceUp : tier.price ? "linear-gradient(135deg, #00D4A8, #6B7FFF)" : t.accentLow, color: isLockedCurrent ? t.textMuted : tier.price ? "#000" : t.accent, cursor: isLockedCurrent || isLoading ? "not-allowed" : "pointer", fontWeight: 900, fontSize: 13, opacity: isLoading ? 0.65 : 1 }}
               >
-                {isCurrent ? "Current plan" : isLoading ? "Processing..." : !isConnected && tier.price > 0 ? "Connect wallet" : tier.price ? `Pay ${tier.price} USDC` : "Use free"}
+                {isLockedCurrent ? "Current plan" : isLoading ? "Processing..." : !isConnected && tier.price > 0 ? "Connect wallet to pay" : tier.price ? `Pay ${tier.price} USDC` : "Use free"}
               </button>
             </article>
           );
         })}
       </div>
     </section>
+    </div>
   );
 }
 
@@ -639,6 +651,8 @@ export default function DeadSwitch() {
   const [editingSwitch, setEditingSwitch] = useState(null);
   const [alertMsg, setAlertMsg] = useState(null);
   const [subscription, setSubscription] = useState(null);
+  const [showSubscription, setShowSubscription] = useState(false);
+  const [subscriptionPrompt, setSubscriptionPrompt] = useState("");
   const [subscribing, setSubscribing] = useState(null);
   const [now, setNow] = useState(null);
   const [width, setWidth] = useState(1024);
@@ -647,14 +661,34 @@ export default function DeadSwitch() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const { openConnectModal } = useConnectModal();
 
   useEffect(() => {
     const url = new URL(window.location.href);
     const hashParams = new URLSearchParams(window.location.hash.replace("#", ""));
     const isRecovery = url.searchParams.get("type") === "recovery" || hashParams.get("type") === "recovery" || url.searchParams.has("code");
     if (isRecovery) requestAnimationFrame(() => setResetMode(true));
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => { setSession(session); if (!session) setSwitches([]); });
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session && !localStorage.getItem(`deadswitch-plan-picked-${session.user.id}`)) {
+        requestAnimationFrame(() => {
+          setSubscriptionPrompt("");
+          setShowSubscription(true);
+        });
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSession(session);
+      if (!session) {
+        setSwitches([]);
+        setShowSubscription(false);
+      } else if (!localStorage.getItem(`deadswitch-plan-picked-${session.user.id}`)) {
+        requestAnimationFrame(() => {
+          setSubscriptionPrompt("");
+          setShowSubscription(true);
+        });
+      }
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -706,11 +740,15 @@ export default function DeadSwitch() {
         maxTimer: Number(sub[3]),
         activeSwitchCount: Number(activeCount),
       });
+      if (Number(sub[0]) > 0 && session?.user?.id) {
+        localStorage.setItem(`deadswitch-plan-picked-${session.user.id}`, "paid");
+        setShowSubscription(false);
+      }
     } catch (err) {
       console.error("Subscription load error:", err);
       setSubscription(null);
     }
-  }, [address, publicClient]);
+  }, [address, publicClient, session?.user?.id]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -729,17 +767,42 @@ export default function DeadSwitch() {
   const active = activeSwitches.filter((s) => s.status !== "paused").length;
   const warnings = activeSwitches.filter((s) => s.status === "warning" || Number(s.remainingSeconds) <= WARNING_SECONDS).length;
   const nextSwitch = useMemo(() => activeSwitches.filter((s) => s.status !== "paused").slice().sort((a, b) => Number(a.remaining) - Number(b.remaining))[0], [activeSwitches]);
+  const currentTier = tierById(subscription?.tier || 0);
+  const planMaxSwitches = subscription?.maxSwitches ?? currentTier.switches;
+  const planMaxTimer = subscription?.maxTimer ?? currentTier.maxTimerSeconds;
+  const planActiveCount = subscription?.activeSwitchCount ?? activeSwitches.length;
 
   function showToast(msg, timeout = 3600) { setAlertMsg(msg); setTimeout(() => setAlertMsg(null), timeout); }
   async function handleSignOut() { await supabase.auth.signOut(); showToast("Signed out"); }
+  function openSubscription(prompt = "") {
+    setSubscriptionPrompt(prompt);
+    setShowSubscription(true);
+  }
+  function closeSubscription() {
+    setSubscriptionPrompt("");
+    setShowSubscription(false);
+  }
+  function openCreateSwitch() {
+    if (planActiveCount >= planMaxSwitches) {
+      openSubscription(`Your ${currentTier.name} plan allows ${formatMaxSwitches(planMaxSwitches)} active switch${planMaxSwitches === 1 ? "" : "es"}. Upgrade to create more switches at the same time.`);
+      return;
+    }
+    setEditingSwitch(null);
+    setShowModal(true);
+  }
 
   async function subscribeToTier(tier) {
     if (tier.id === 0) {
+      if (session?.user?.id) localStorage.setItem(`deadswitch-plan-picked-${session.user.id}`, "free");
+      closeSubscription();
       showToast("Free plan is active by default");
       return;
     }
     if (!CONTRACT_ADDRESS) return showToast("Contract address is missing.");
-    if (!isConnected || !walletClient || !publicClient) return showToast("Connect your wallet to subscribe");
+    if (!isConnected || !walletClient || !publicClient) {
+      openConnectModal?.();
+      return showToast("Connect your wallet to subscribe");
+    }
 
     try {
       setSubscribing(tier.id);
@@ -764,6 +827,8 @@ export default function DeadSwitch() {
       await publicClient.waitForTransactionReceipt({ hash });
 
       await loadSubscription();
+      if (session?.user?.id) localStorage.setItem(`deadswitch-plan-picked-${session.user.id}`, tier.key);
+      closeSubscription();
       showToast(`${tier.name} plan activated`);
     } catch (err) {
       console.error("Subscription error:", err);
@@ -788,8 +853,16 @@ export default function DeadSwitch() {
     if (!CONTRACT_ADDRESS) return showToast("Contract address is missing.");
     if (!isConnected || !walletClient || !publicClient) return showToast("Connect your wallet before creating a backup plan");
     if (subscription) {
-      if (subscription.activeSwitchCount >= subscription.maxSwitches) return showToast("You’ve reached your active switch limit. Upgrade or cancel an old switch.");
-      if (timerSeconds > subscription.maxTimer) return showToast(`This timer is above your plan limit. Current max: ${formatMaxTimer(subscription.maxTimer)}.`);
+      if (subscription.activeSwitchCount >= subscription.maxSwitches) {
+        setShowModal(false);
+        openSubscription(`You’ve reached the active switch limit on ${currentTier.name}. Upgrade to unlock more active switches, or cancel an old one to free a slot.`);
+        return showToast("Upgrade to create more active switches.");
+      }
+      if (timerSeconds > subscription.maxTimer) {
+        setShowModal(false);
+        openSubscription(`This timer is above your ${currentTier.name} limit. Your current max is ${formatMaxTimer(subscription.maxTimer)}. Upgrade to set longer backup timers.`);
+        return showToast("Upgrade to use a longer timer.");
+      }
     }
     let contract_id = null, tx_hash = null;
     try {
@@ -825,8 +898,15 @@ export default function DeadSwitch() {
     if (!editingSwitch) return;
     const days = Number(form.days);
     if (!days || days < 1) return showToast("Timer must be at least 1");
+    const timerUnit = form.timer_unit || "days";
+    const timerSeconds = timerUnit === "minutes" ? days * 60 : days * 86400;
     const isOnChain = editingSwitch.contract_id !== null && editingSwitch.contract_id !== undefined;
-    const updatePayload = isOnChain ? { label: form.label, note: form.note, email: form.email || null } : { label: form.label, days, remaining: days, timer_unit: form.timer_unit || "days", destination: form.destination, chain: "Arc Testnet", token: "USDC", send_all: form.send_all, amount: form.send_all ? null : form.amount, note: form.note, email: form.email || null, status: editingSwitch.status === "triggered" ? "active" : editingSwitch.status, created_at: new Date().toISOString() };
+    if (!isOnChain && subscription && timerSeconds > subscription.maxTimer) {
+      setShowModal(false);
+      openSubscription(`This timer is above your ${currentTier.name} limit. Your current max is ${formatMaxTimer(subscription.maxTimer)}. Upgrade to extend switches further.`);
+      return showToast("Upgrade to use a longer timer.");
+    }
+    const updatePayload = isOnChain ? { label: form.label, note: form.note, email: form.email || null } : { label: form.label, days, remaining: days, timer_unit: timerUnit, destination: form.destination, chain: "Arc Testnet", token: "USDC", send_all: form.send_all, amount: form.send_all ? null : form.amount, note: form.note, email: form.email || null, status: editingSwitch.status === "triggered" ? "active" : editingSwitch.status, created_at: new Date().toISOString() };
     const { data, error } = await supabase.from("switches").update(updatePayload).eq("id", editingSwitch.id).select().single();
     if (error) return showToast(error.message || "Failed to update switch");
     setSwitches((p) => p.map((sw) => sw.id === editingSwitch.id ? data : sw));
@@ -942,6 +1022,14 @@ export default function DeadSwitch() {
             <div style={{ "--rk-radii-connectButton": "12px" }}>
               <ConnectButton showBalance={false} chainStatus={isMobile ? "none" : "icon"} accountStatus={isMobile ? "avatar" : "full"} />
             </div>
+            <button
+              onClick={() => openSubscription("Upgrade anytime to unlock more active switches and longer timers.")}
+              title="View or upgrade plan"
+              style={{ minHeight: 38, padding: "0 13px", borderRadius: 12, border: `1px solid ${t.accent}30`, background: t.accentLow, color: t.accent, cursor: "pointer", fontWeight: 900, fontSize: 12, fontFamily: "'DM Mono',monospace", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", lineHeight: 1.15 }}
+            >
+              <span>{currentTier.name}</span>
+              {!isMobile && <span style={{ color: t.textMuted, fontSize: 9 }}>{planActiveCount}/{formatMaxSwitches(planMaxSwitches)} active</span>}
+            </button>
             <button onClick={() => setDark((v) => !v)} style={{ width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 12, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, cursor: "pointer" }}>
               {dark ? <Sun size={15}/> : <Moon size={15}/>}
             </button>
@@ -960,6 +1048,7 @@ export default function DeadSwitch() {
       )}
 
       <main style={{ maxWidth: 1280, margin: "0 auto", padding: `${isMobile ? 36 : 64}px ${px}px 100px` }}>
+        {showSubscription && (
         <SubscriptionPanel
           subscription={subscription}
           onSubscribe={subscribeToTier}
@@ -968,7 +1057,10 @@ export default function DeadSwitch() {
           t={t}
           dark={dark}
           isMobile={isMobile}
+          onClose={closeSubscription}
+          prompt={subscriptionPrompt}
         />
+        )}
 
         <section style={{ display: "grid", gridTemplateColumns: isTablet ? "1fr" : "minmax(0,1fr) minmax(460px,580px)", gap: isTablet ? 32 : 64, alignItems: "start", animation: "fadeUp .5s ease" }}>
           <div style={{ maxWidth: isTablet ? 760 : 560, paddingTop: isTablet ? 0 : 14 }}>
@@ -986,7 +1078,7 @@ export default function DeadSwitch() {
               Choose a backup wallet, set a check-in timer, and let DeadSwitch handle the rest — automatically, on-chain.
             </p>
             <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 10, marginBottom: 40, maxWidth: isMobile ? "100%" : 520 }}>
-              <button onClick={() => { setEditingSwitch(null); setShowModal(true); }}
+              <button onClick={openCreateSwitch}
                 style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 22px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #00D4A8, #6B7FFF)", color: "#000", fontWeight: 900, cursor: "pointer", boxShadow: "0 8px 30px rgba(0,212,168,0.22)", width: isMobile ? "100%" : "auto", fontSize: 14, letterSpacing: "-0.01em", transition: "opacity 0.2s, transform 0.15s" }}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity="0.88"; e.currentTarget.style.transform="translateY(-2px)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity="1"; e.currentTarget.style.transform="translateY(0)"; }}>
@@ -1020,7 +1112,7 @@ export default function DeadSwitch() {
               <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>YOUR PLANS</p>
               <h2 style={{ color: t.text, fontSize: isMobile ? 24 : 30, margin: 0, letterSpacing: "-0.04em", fontWeight: 900 }}>Backup plans</h2>
             </div>
-            <button onClick={() => { setEditingSwitch(null); setShowModal(true); }}
+            <button onClick={openCreateSwitch}
               style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px", borderRadius: 12, border: "1px solid rgba(0,212,168,0.22)", background: "rgba(0,212,168,0.07)", color: t.accent, cursor: "pointer", fontWeight: 850, fontSize: 13, transition: "all 0.2s" }}>
               <Plus size={14}/>New
             </button>
@@ -1039,7 +1131,7 @@ export default function DeadSwitch() {
               <Shield size={38} color={t.textMuted} />
               <h3 style={{ color: t.text, margin: "18px 0 8px", fontSize: 20, fontWeight: 900, letterSpacing: "-0.02em" }}>No backup plans yet</h3>
               <p style={{ color: t.textSub, margin: "0 0 24px", fontSize: 14 }}>Create your first plan and let DeadSwitch start watching.</p>
-              <button onClick={() => { setEditingSwitch(null); setShowModal(true); }}
+              <button onClick={openCreateSwitch}
                 style={{ padding: "12px 20px", borderRadius: 13, border: "none", background: "linear-gradient(135deg, #00D4A8, #6B7FFF)", color: "#000", cursor: "pointer", fontWeight: 900, fontSize: 13, boxShadow: "0 4px 20px rgba(0,212,168,0.18)" }}>
                 Create backup plan
               </button>
@@ -1091,7 +1183,7 @@ export default function DeadSwitch() {
       </footer>
 
       {showModal && <SwitchModal onClose={() => { setShowModal(false); setEditingSwitch(null); }} onSubmit={editingSwitch ? updateSwitch : createSwitch} initialSwitch={editingSwitch} t={t} isConnected={isConnected} />}
-      {showHowIt && <HowItWorksModal onClose={() => setShowHowIt(false)} onCreateClick={() => { setEditingSwitch(null); setShowModal(true); }} t={t} />}
+      {showHowIt && <HowItWorksModal onClose={() => setShowHowIt(false)} onCreateClick={openCreateSwitch} t={t} />}
     </div>
   );
 } 
