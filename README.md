@@ -61,7 +61,7 @@ DeadSwitch solves that.
 **DeadSwitchVault.sol** — deployed on Arc Testnet
 
 ```
-Contract: 0xBF74c66F3933c953246f341C40e4f1cD0900642D
+Contract: 0xa5c109Bfc654fC94B5714f8504a7445839C4eEe5
 Network:  Arc Testnet (Chain ID: 5042002)
 Explorer: https://testnet.arcscan.app/address/0xBF74c66F3933c953246f341C40e4f1cD0900642D
 ```
