@@ -2,7 +2,7 @@
 
 import { supabase } from "../supabase";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useBalance, useWalletClient, usePublicClient } from "wagmi";
 import { parseEventLogs, parseUnits } from "viem";
@@ -44,6 +44,13 @@ const USDC_ABI = [
 ];
 const TIMER_PRESETS = { minutes: [1, 2, 5, 10, 30, 60], days: [2, 5, 30, 60, 90, 180] };
 const WARNING_SECONDS = 2 * 60;
+const YEARLY_MAX_SWITCHES = 999999;
+const TIERS = [
+  { id: 0, key: "free", name: "Free", price: 0, duration: "Forever", switches: 1, timer: "30 days", maxTimerSeconds: 30 * 86400, note: "Try DeadSwitch with one active backup plan." },
+  { id: 1, key: "monthly", name: "Monthly", price: 15, duration: "30 days", switches: 2, timer: "90 days", maxTimerSeconds: 90 * 86400, note: "A small plan for testing real recovery flows." },
+  { id: 2, key: "sixmonth", name: "6 Month", price: 50, duration: "180 days", switches: 5, timer: "180 days", maxTimerSeconds: 180 * 86400, note: "Best for personal wallets and a few backup routes.", featured: true },
+  { id: 3, key: "yearly", name: "Yearly", price: 150, duration: "365 days", switches: YEARLY_MAX_SWITCHES, timer: "365 days", maxTimerSeconds: 365 * 86400, note: "For power users, teams, and serious vault setups." },
+];
 
 function truncateWallet(value = "") {
   if (!value || value.length < 12) return value;
@@ -74,6 +81,23 @@ function timerLabel(sw) {
   const value = Number(sw?.remaining || 0);
   if (value <= 0) return "EXECUTING SOON";
   return `${value} ${unit === "minutes" ? "MIN" : value === 1 ? "DAY" : "DAYS"} REMAINING`;
+}
+function tierById(id = 0) {
+  return TIERS.find((tier) => tier.id === Number(id)) || TIERS[0];
+}
+function formatMaxSwitches(value) {
+  if (!value || Number(value) >= YEARLY_MAX_SWITCHES) return "Unlimited";
+  return `${value}`;
+}
+function formatExpiry(expiresAt) {
+  if (!expiresAt || Number(expiresAt) === 0) return "No expiry";
+  return new Date(Number(expiresAt) * 1000).toLocaleDateString();
+}
+function formatMaxTimer(seconds) {
+  const value = Number(seconds || 0);
+  if (!value) return "30 days";
+  const days = Math.round(value / 86400);
+  return `${days} day${days === 1 ? "" : "s"}`;
 }
 function statusMeta(status, t) {
   const map = {
@@ -141,7 +165,7 @@ function ProgressBar({ sw, remaining, days, t }) {
         </strong>
         <span style={{ color: t.textMuted, fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{Math.round(pct)}%</span>
       </div>
-      <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+      <div style={{ height: 5, borderRadius: 999, background: t.surfaceUp, border: `1px solid ${t.border}`, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${color}, ${t.accent2})`, boxShadow: `0 0 10px ${color}50`, transition: "width 0.6s ease" }} />
       </div>
     </div>
@@ -303,6 +327,71 @@ function AuthScreen({ t, initialMode = "signin", onPasswordResetComplete }) {
   );
 }
 
+/* SUBSCRIPTION */
+function SubscriptionPanel({ subscription, onSubscribe, subscribing, isConnected, t, dark, isMobile }) {
+  const currentTier = tierById(subscription?.tier || 0);
+  const maxSwitches = subscription?.maxSwitches || currentTier.switches;
+  const maxTimer = subscription?.maxTimer || currentTier.maxTimerSeconds;
+  const activeCount = subscription?.activeSwitchCount || 0;
+
+  return (
+    <section style={{ marginBottom: isMobile ? 34 : 46, animation: "fadeUp .45s ease" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 18, marginBottom: 18, flexWrap: "wrap" }}>
+        <div>
+          <p style={{ color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>PLAN ACCESS</p>
+          <h2 style={{ color: t.text, fontSize: isMobile ? 24 : 32, margin: 0, letterSpacing: "-0.04em", fontWeight: 900 }}>Choose how much backup room you need</h2>
+        </div>
+        <div style={{ padding: "10px 13px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 12, fontFamily: "'DM Mono', monospace", lineHeight: 1.6 }}>
+          Current: <strong style={{ color: t.accent }}>{currentTier.name}</strong><br />
+          {activeCount}/{formatMaxSwitches(maxSwitches)} active · max {formatMaxTimer(maxTimer)}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+        {TIERS.map((tier) => {
+          const isCurrent = currentTier.id === tier.id;
+          const isLoading = subscribing === tier.id;
+          return (
+            <article key={tier.key} style={{ position: "relative", minHeight: 250, padding: 18, borderRadius: 20, border: `1px solid ${tier.featured ? `${t.accent}45` : t.border}`, background: tier.featured ? `linear-gradient(160deg, ${t.accentLow}, ${t.panel})` : t.panel, boxShadow: tier.featured && dark ? "0 20px 70px rgba(0,212,168,0.10)" : "none", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${tier.featured ? t.accent : t.borderUp}, transparent)` }} />
+              {tier.featured && (
+                <span style={{ display: "inline-flex", marginBottom: 12, padding: "4px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, border: `1px solid ${t.accent}30`, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em" }}>
+                  RECOMMENDED
+                </span>
+              )}
+              <h3 style={{ color: t.text, fontSize: 18, margin: tier.featured ? "0 0 6px" : "26px 0 6px", fontWeight: 900, letterSpacing: "-0.03em" }}>{tier.name}</h3>
+              <p style={{ color: t.textSub, fontSize: 12, lineHeight: 1.6, minHeight: 40, margin: "0 0 14px" }}>{tier.note}</p>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 14 }}>
+                <span style={{ color: t.text, fontSize: 30, fontWeight: 900, letterSpacing: "-0.05em" }}>{tier.price ? tier.price : "0"}</span>
+                <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>USDC</span>
+              </div>
+              <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                {[
+                  `${formatMaxSwitches(tier.switches)} active switch${tier.switches === 1 ? "" : "es"}`,
+                  `Timers up to ${tier.timer}`,
+                  tier.price ? `${tier.duration} access` : "No wallet payment needed",
+                ].map((item) => (
+                  <div key={item} style={{ display: "flex", gap: 8, alignItems: "center", color: t.textSub, fontSize: 12 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: 999, background: t.accent, flexShrink: 0 }} />
+                    {item}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => onSubscribe(tier)}
+                disabled={isCurrent || isLoading || (!isConnected && tier.price > 0)}
+                style={{ width: "100%", padding: "11px 12px", borderRadius: 12, border: `1px solid ${isCurrent ? t.border : t.accent}33`, background: isCurrent ? t.surfaceUp : tier.price ? "linear-gradient(135deg, #00D4A8, #6B7FFF)" : t.accentLow, color: isCurrent ? t.textMuted : tier.price ? "#000" : t.accent, cursor: isCurrent || isLoading || (!isConnected && tier.price > 0) ? "not-allowed" : "pointer", fontWeight: 900, fontSize: 13, opacity: isLoading || (!isConnected && tier.price > 0) ? 0.65 : 1 }}
+              >
+                {isCurrent ? "Current plan" : isLoading ? "Processing..." : !isConnected && tier.price > 0 ? "Connect wallet" : tier.price ? `Pay ${tier.price} USDC` : "Use free"}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /* AGENT CONSOLE */
 function AgentConsole({ switches, nextSwitch, t, isMobile }) {
   const active = switches.filter((s) => s.status==="active"||s.status==="warning").length;
@@ -313,43 +402,43 @@ function AgentConsole({ switches, nextSwitch, t, isMobile }) {
     { icon: Shield, label: "Network", value: "Arc Testnet",                                   color: t.accent2 },
   ];
   return (
-    <div style={{ position: "relative", width: "100%", maxWidth: 590, justifySelf: "end", background: "rgba(10,13,22,0.94)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 24, padding: isMobile ? 16 : 20, boxShadow: "0 40px 120px rgba(0,0,0,0.60), 0 0 0 1px rgba(0,212,168,0.05)", overflow: "hidden", backdropFilter: "blur(20px)" }}>
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 80% -10%, rgba(0,212,168,0.09) 0%, transparent 50%), radial-gradient(ellipse at 20% 110%, rgba(107,127,255,0.05) 0%, transparent 50%)", pointerEvents: "none" }} />
-      <div style={{ position: "absolute", top: 0, left: "15%", right: "15%", height: 1, background: "linear-gradient(90deg, transparent, rgba(0,212,168,0.40), transparent)" }} />
+    <div style={{ position: "relative", width: "100%", maxWidth: 590, justifySelf: "end", background: `linear-gradient(160deg, ${t.surface}, ${t.panel})`, border: `1px solid ${t.borderUp}`, borderRadius: 24, padding: isMobile ? 16 : 20, boxShadow: t.shadow, overflow: "hidden", backdropFilter: "blur(20px)" }}>
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 80% -10%, ${t.accentLow} 0%, transparent 50%), radial-gradient(ellipse at 20% 110%, ${t.accentMid} 0%, transparent 52%)`, pointerEvents: "none" }} />
+      <div style={{ position: "absolute", top: 0, left: "15%", right: "15%", height: 1, background: `linear-gradient(90deg, transparent, ${t.accent}70, transparent)` }} />
       <div style={{ position: "relative" }}>
-        <div style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.05)", marginBottom: 18, paddingBottom: 14 }}>
+        <div style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${t.border}`, marginBottom: 18, paddingBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ width: 10, height: 10, borderRadius: 999, background: "#FF5F57", boxShadow: "0 0 6px rgba(255,95,87,0.5)" }} />
             <span style={{ width: 10, height: 10, borderRadius: 999, background: "#FFBD2E", boxShadow: "0 0 6px rgba(255,189,46,0.5)" }} />
             <span style={{ width: 10, height: 10, borderRadius: 999, background: "#28C840", boxShadow: "0 0 6px rgba(40,200,64,0.5)" }} />
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, color: "rgba(255,255,255,0.28)", fontSize: 11, fontWeight: 850, letterSpacing: "0.14em", fontFamily: "'DM Mono', monospace" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, color: t.textMuted, fontSize: 11, fontWeight: 850, letterSpacing: "0.14em", fontFamily: "'DM Mono', monospace" }}>
             <span style={{ width: 6, height: 6, borderRadius: 999, background: t.accent, animation: "pulseDot 2s ease infinite", display: "inline-block" }} />
             DEADSWITCH OS
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 100px", gap: 12, alignItems: "stretch", marginBottom: 14 }}>
-          <div style={{ borderRadius: 16, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.05)", padding: isMobile ? 16 : 18 }}>
-            <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, fontWeight: 900, letterSpacing: "0.14em", margin: "0 0 10px", fontFamily: "'DM Mono', monospace" }}>CURRENT PLAN</p>
-            <h2 style={{ color: nextSwitch ? "#F0F4FF" : "rgba(255,255,255,0.20)", fontSize: isMobile ? 20 : 24, lineHeight: 1.1, margin: "0 0 8px", letterSpacing: "-0.03em", fontWeight: 900 }}>{nextSwitch ? nextSwitch.label : "No plan yet"}</h2>
-            <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 11, margin: 0, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ borderRadius: 16, background: t.bg, border: `1px solid ${t.border}`, padding: isMobile ? 16 : 18 }}>
+            <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.14em", margin: "0 0 10px", fontFamily: "'DM Mono', monospace" }}>CURRENT PLAN</p>
+            <h2 style={{ color: nextSwitch ? t.text : t.textMuted, fontSize: isMobile ? 20 : 24, lineHeight: 1.1, margin: "0 0 8px", letterSpacing: "-0.03em", fontWeight: 900 }}>{nextSwitch ? nextSwitch.label : "No plan yet"}</h2>
+            <p style={{ color: t.textSub, fontSize: 11, margin: 0, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {nextSwitch ? `USDC → ${truncateWallet(nextSwitch.destination)}` : "Create a backup plan to begin"}
             </p>
           </div>
-          <div style={{ borderRadius: 16, background: "linear-gradient(135deg, rgba(0,212,168,0.10), rgba(107,127,255,0.07))", border: "1px solid rgba(0,212,168,0.14)", padding: 14, display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: isMobile ? 100 : 0 }}>
-            <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: 0, fontFamily: "'DM Mono', monospace" }}>NEXT REMINDER</p>
+          <div style={{ borderRadius: 16, background: `linear-gradient(135deg, ${t.accentLow}, ${t.panel})`, border: `1px solid ${t.accent}24`, padding: 14, display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: isMobile ? 100 : 0 }}>
+            <p style={{ color: t.textMuted, fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: 0, fontFamily: "'DM Mono', monospace" }}>NEXT REMINDER</p>
             <div>
               <p style={{ color: nextSwitch && Number(nextSwitch.remainingSeconds)<=WARNING_SECONDS ? t.warn : t.accent, fontSize: isMobile ? 32 : 38, lineHeight: 1, fontWeight: 900, margin: 0, fontFamily: "'DM Mono', monospace", textShadow: `0 0 20px ${t.accent}40` }}>{nextSwitch ? nextSwitch.remaining : "--"}</p>
-              <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: "5px 0 0", fontFamily: "'DM Mono', monospace" }}>{nextSwitch?.timer_unit === "minutes" ? "MIN" : "DAYS"}</p>
+              <p style={{ color: t.textMuted, fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: "5px 0 0", fontFamily: "'DM Mono', monospace" }}>{nextSwitch?.timer_unit === "minutes" ? "MIN" : "DAYS"}</p>
             </div>
           </div>
         </div>
         <div style={{ marginBottom: 14 }}><ProgressBar sw={nextSwitch} remaining={nextSwitch?.remaining||0} days={nextSwitch?.days||1} t={t} /></div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 8 }}>
           {rows.map((row) => (
-            <div key={row.label} style={{ padding: isMobile ? 12 : 13, borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.25)" }}>
+            <div key={row.label} style={{ padding: isMobile ? 12 : 13, borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel }}>
               <row.icon size={14} color={row.color} />
-              <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, margin: "8px 0 3px", fontWeight: 750, letterSpacing: "0.04em" }}>{row.label}</p>
+              <p style={{ color: t.textMuted, fontSize: 10, margin: "8px 0 3px", fontWeight: 750, letterSpacing: "0.04em" }}>{row.label}</p>
               <p style={{ color: row.color, fontSize: 13, margin: 0, fontWeight: 850 }}>{row.value}</p>
             </div>
           ))}
@@ -367,44 +456,44 @@ function SwitchCard({ sw, onCheckin, onPause, onCancel, onAlert, onEdit, t }) {
   const isClose = Number(sw.remainingSeconds) <= WARNING_SECONDS && !isFinal;
   const timerColor = isClose ? t.warn : meta.color;
   return (
-    <article style={{ background: "linear-gradient(160deg, rgba(14,18,28,0.96), rgba(9,11,18,0.96))", border: `1px solid ${isClose ? "rgba(244,183,64,0.30)" : "rgba(255,255,255,0.06)"}`, borderRadius: 20, padding: 20, boxShadow: isClose ? "0 20px 60px rgba(244,183,64,0.08)" : "0 16px 50px rgba(0,0,0,0.30)", position: "relative", overflow: "hidden", backdropFilter: "blur(10px)" }}>
+    <article style={{ background: `linear-gradient(160deg, ${t.surface}, ${t.panel})`, border: `1px solid ${isClose ? `${t.warn}55` : t.border}`, borderRadius: 20, padding: 20, boxShadow: isClose ? `0 20px 60px ${t.warn}14` : "0 16px 50px rgba(0,0,0,0.10)", position: "relative", overflow: "hidden", backdropFilter: "blur(10px)" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${meta.color}50, transparent)` }} />
       <div style={{ position: "absolute", top: -20, right: -20, width: 100, height: 100, background: `radial-gradient(circle, ${meta.color}07, transparent 70%)`, pointerEvents: "none" }} />
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
         <div style={{ minWidth: 0 }}>
           <StatusPill status={sw.status} t={t} />
-          <h3 style={{ color: "#F0F4FF", fontSize: 16, lineHeight: 1.2, margin: "12px 0 6px", fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.02em" }}>{sw.label}</h3>
+          <h3 style={{ color: t.text, fontSize: 16, lineHeight: 1.2, margin: "12px 0 6px", fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.02em" }}>{sw.label}</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6, flexWrap: "wrap" }}>
-            <span style={{ padding: "2px 8px", borderRadius: 999, background: "rgba(0,212,168,0.08)", color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em", border: "1px solid rgba(0,212,168,0.20)" }}>USDC</span>
-            <span style={{ padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: 800, border: "1px solid rgba(255,255,255,0.06)" }}>Arc Testnet</span>
+            <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.08em", border: `1px solid ${t.accent}30` }}>USDC</span>
+            <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>Arc Testnet</span>
             {sw.send_all ? (
-              <span style={{ padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: 800, border: "1px solid rgba(255,255,255,0.06)" }}>100% balance</span>
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>100% balance</span>
             ) : sw.amount ? (
-              <span style={{ padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: 800, border: "1px solid rgba(255,255,255,0.06)" }}>{sw.amount} USDC</span>
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.surfaceUp, color: t.textSub, fontSize: 10, fontWeight: 800, border: `1px solid ${t.border}` }}>{sw.amount} USDC</span>
             ) : null}
             {sw.contract_id !== null && sw.contract_id !== undefined && (
-              <span style={{ padding: "2px 8px", borderRadius: 999, background: "rgba(0,212,168,0.08)", color: t.accent, fontSize: 10, fontWeight: 900, border: "1px solid rgba(0,212,168,0.20)" }}>#{sw.contract_id}</span>
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: t.accentLow, color: t.accent, fontSize: 10, fontWeight: 900, border: `1px solid ${t.accent}30` }}>#{sw.contract_id}</span>
             )}
           </div>
-          <p style={{ color: "rgba(255,255,255,0.28)", fontSize: 11, margin: 0, fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
+          <p style={{ color: t.textSub, fontSize: 11, margin: 0, fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <p style={{ color: timerColor, fontSize: 30, lineHeight: 1, margin: 0, fontWeight: 900, fontFamily: "'DM Mono', monospace", textShadow: `0 0 16px ${timerColor}40` }}>{sw.remaining}</p>
-          <p style={{ color: "rgba(255,255,255,0.22)", fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: "4px 0 0", fontFamily: "'DM Mono', monospace" }}>{sw.timer_unit === "minutes" ? "MIN LEFT" : "DAYS LEFT"}</p>
+          <p style={{ color: t.textMuted, fontSize: 9, fontWeight: 900, letterSpacing: "0.14em", margin: "4px 0 0", fontFamily: "'DM Mono', monospace" }}>{sw.timer_unit === "minutes" ? "MIN LEFT" : "DAYS LEFT"}</p>
         </div>
       </div>
       <div style={{ margin: "16px 0" }}><ProgressBar sw={sw} remaining={sw.remaining} days={sw.days} t={t} /></div>
-      <div style={{ minHeight: 44, padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.25)" }}>
-        <p style={{ color: "rgba(255,255,255,0.30)", fontSize: 12, lineHeight: 1.6, margin: 0, fontStyle: sw.note ? "italic" : "normal" }}>{sw.note ? `"${sw.note}"` : "No message added."}</p>
+      <div style={{ minHeight: 44, padding: 12, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg }}>
+        <p style={{ color: t.textSub, fontSize: 12, lineHeight: 1.6, margin: 0, fontStyle: sw.note ? "italic" : "normal" }}>{sw.note ? `"${sw.note}"` : "No message added."}</p>
       </div>
       {sw.email && (
-        <div style={{ display: "flex", alignItems: "center", gap: 7, color: "rgba(255,255,255,0.22)", fontSize: 11, marginTop: 10, fontFamily: "'DM Mono', monospace" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, color: t.textMuted, fontSize: 11, marginTop: 10, fontFamily: "'DM Mono', monospace" }}>
           <Mail size={11} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sw.email}</span>
         </div>
       )}
       {!isFinal && (
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-          <button onClick={() => onCheckin(sw.id)} style={{ flex: 1, minHeight: 38, border: "1px solid rgba(0,212,168,0.22)", background: "rgba(0,212,168,0.07)", color: t.accent, borderRadius: 11, fontWeight: 900, fontSize: 12, letterSpacing: "0.06em", cursor: "pointer", transition: "all 0.2s" }}>CHECK IN</button>
+          <button onClick={() => onCheckin(sw.id)} style={{ flex: 1, minHeight: 38, border: `1px solid ${t.accent}36`, background: t.accentLow, color: t.accent, borderRadius: 11, fontWeight: 900, fontSize: 12, letterSpacing: "0.06em", cursor: "pointer", transition: "all 0.2s" }}>CHECK IN</button>
           {sw.email && <IconButton onClick={() => onAlert(sw)} title="Send warning email" t={t} tone="warn"><Mail size={14} /></IconButton>}
           <IconButton onClick={() => onEdit(sw)} title="Edit switch" t={t}><Pencil size={14} /></IconButton>
           {!isOnChain && <IconButton onClick={() => onPause(sw.id)} title={sw.status==="paused" ? "Resume" : "Pause"} t={t}>{sw.status==="paused" ? <Play size={14}/> : <Pause size={14}/>}</IconButton>}
@@ -433,22 +522,22 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
   const { data: balance } = useBalance({ address, query: { enabled: !!address } });
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const ok = form.label.trim() && form.destination.trim() && Number(form.days) > 0 && (form.send_all || form.amount);
-  const inp = { width: "100%", border: "1px solid rgba(255,255,255,0.07)", background: "rgba(0,0,0,0.30)", color: "#F0F4FF", borderRadius: 12, padding: "12px 13px", outline: "none", fontSize: 14 };
-  const lbl = { color: "rgba(255,255,255,0.28)", display: "block", fontSize: 10, letterSpacing: "0.14em", fontWeight: 900, margin: "16px 0 7px", fontFamily: "'DM Mono', monospace" };
+  const inp = { width: "100%", border: `1px solid ${t.border}`, background: t.bg, color: t.text, borderRadius: 12, padding: "12px 13px", outline: "none", fontSize: 14 };
+  const lbl = { color: t.textMuted, display: "block", fontSize: 10, letterSpacing: "0.14em", fontWeight: 900, margin: "16px 0 7px", fontFamily: "'DM Mono', monospace" };
   async function submit() { if (!ok || saving) return; setSaving(true); await onSubmit(form, balance); setSaving(false); }
   return (
     <div onClick={(e) => e.target===e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(20px)", display: "grid", placeItems: "center", padding: 16 }}>
-      <div style={{ width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", borderRadius: 24, border: "1px solid rgba(255,255,255,0.07)", background: "rgba(10,13,22,0.97)", boxShadow: "0 40px 120px rgba(0,0,0,0.70), 0 0 0 1px rgba(0,212,168,0.05)", padding: 24, position: "relative" }}>
-        <div style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 1, background: "linear-gradient(90deg, transparent, rgba(0,212,168,0.45), transparent)" }} />
+      <div style={{ width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", borderRadius: 24, border: `1px solid ${t.borderUp}`, background: t.surface, boxShadow: t.shadow, padding: 24, position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 1, background: `linear-gradient(90deg, transparent, ${t.accent}80, transparent)` }} />
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 4 }}>
           <div>
             <p style={{ color: t.accent, fontSize: 10, letterSpacing: "0.16em", fontWeight: 900, margin: 0, fontFamily: "'DM Mono', monospace" }}>{initialSwitch ? "EDIT PLAN" : "NEW BACKUP PLAN"}</p>
-            <h2 style={{ color: "#F0F4FF", fontSize: 22, margin: "8px 0 0", letterSpacing: "-0.03em", fontWeight: 900 }}>{initialSwitch ? "Update your plan" : "Tell DeadSwitch what to do"}</h2>
+            <h2 style={{ color: t.text, fontSize: 22, margin: "8px 0 0", letterSpacing: "-0.03em", fontWeight: 900 }}>{initialSwitch ? "Update your plan" : "Tell DeadSwitch what to do"}</h2>
           </div>
           <IconButton onClick={onClose} title="Close" t={t}><X size={15} /></IconButton>
         </div>
         {!isConnected && <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.warnLow, border: `1px solid ${t.warn}40`, color: t.warn, fontSize: 12, fontWeight: 700 }}>⚠️ Connect your wallet to deploy this switch on-chain</div>}
-        <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: "rgba(0,212,168,0.06)", border: "1px solid rgba(0,212,168,0.18)", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, background: t.accentLow, border: `1px solid ${t.accent}30`, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: t.accent, flexShrink: 0, boxShadow: `0 0 6px ${t.accent}` }} />
           <span style={{ color: t.accent, fontSize: 11, fontWeight: 800, fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>Arc Testnet · USDC</span>
         </div>
@@ -458,22 +547,22 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
         <label style={lbl}>CHECK-IN TIMER</label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           {["days", "minutes"].map((unit) => (
-            <button key={unit} disabled={isOnChainEdit} onClick={() => set("timer_unit", unit)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${form.timer_unit===unit ? "rgba(0,212,168,0.35)" : "rgba(255,255,255,0.07)"}`, background: form.timer_unit===unit ? "rgba(0,212,168,0.10)" : "rgba(0,0,0,0.20)", color: form.timer_unit===unit ? t.accent : "rgba(255,255,255,0.30)", cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 850, fontSize: 13, textTransform: "capitalize" }}>{unit}</button>
+            <button key={unit} disabled={isOnChainEdit} onClick={() => set("timer_unit", unit)} style={{ padding: "10px 0", borderRadius: 11, border: `1px solid ${form.timer_unit===unit ? `${t.accent}60` : t.border}`, background: form.timer_unit===unit ? t.accentLow : t.bg, color: form.timer_unit===unit ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 850, fontSize: 13, textTransform: "capitalize" }}>{unit}</button>
           ))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
           {TIMER_PRESETS[form.timer_unit].map((d) => (
-            <button key={d} disabled={isOnChainEdit} onClick={() => set("days", d)} style={{ padding: "10px 0", borderRadius: 10, border: `1px solid ${Number(form.days)===d ? "rgba(0,212,168,0.35)" : "rgba(255,255,255,0.07)"}`, background: Number(form.days)===d ? "rgba(0,212,168,0.10)" : "rgba(0,0,0,0.20)", color: Number(form.days)===d ? t.accent : "rgba(255,255,255,0.28)", cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 12 }}>{d}{form.timer_unit === "minutes" ? "m" : "d"}</button>
+            <button key={d} disabled={isOnChainEdit} onClick={() => set("days", d)} style={{ padding: "10px 0", borderRadius: 10, border: `1px solid ${Number(form.days)===d ? `${t.accent}60` : t.border}`, background: Number(form.days)===d ? t.accentLow : t.bg, color: Number(form.days)===d ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 12 }}>{d}{form.timer_unit === "minutes" ? "m" : "d"}</button>
           ))}
         </div>
         <input disabled={isOnChainEdit} style={{ ...inp, marginTop: 8, opacity: isOnChainEdit ? 0.5 : 1 }} type="number" min="1" max={form.timer_unit === "minutes" ? "10080" : "3650"} value={form.days} placeholder={`Custom ${form.timer_unit}`} onChange={(e) => set("days", e.target.value)} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 7px" }}>
-          <span style={{ color: "rgba(255,255,255,0.28)", fontSize: 10, letterSpacing: "0.14em", fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>AMOUNT (USDC)</span>
-          {balance && address ? <span style={{ color: t.accent, fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>Balance: {parseFloat(balance.formatted).toFixed(2)} {balance.symbol}</span> : <span style={{ color: "rgba(255,255,255,0.22)", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>Connect wallet to see balance</span>}
+          <span style={{ color: t.textMuted, fontSize: 10, letterSpacing: "0.14em", fontWeight: 900, fontFamily: "'DM Mono', monospace" }}>AMOUNT (USDC)</span>
+          {balance && address ? <span style={{ color: t.accent, fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>Balance: {parseFloat(balance.formatted).toFixed(2)} {balance.symbol}</span> : <span style={{ color: t.textMuted, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>Connect wallet to see balance</span>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <button disabled={isOnChainEdit} onClick={() => set("send_all", true)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${form.send_all ? "rgba(0,212,168,0.35)" : "rgba(255,255,255,0.07)"}`, background: form.send_all ? "rgba(0,212,168,0.10)" : "rgba(0,0,0,0.20)", color: form.send_all ? t.accent : "rgba(255,255,255,0.30)", cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 13 }}>100% of balance</button>
-          <button disabled={isOnChainEdit} onClick={() => set("send_all", false)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${!form.send_all ? "rgba(0,212,168,0.35)" : "rgba(255,255,255,0.07)"}`, background: !form.send_all ? "rgba(0,212,168,0.10)" : "rgba(0,0,0,0.20)", color: !form.send_all ? t.accent : "rgba(255,255,255,0.30)", cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 13 }}>Specific amount</button>
+          <button disabled={isOnChainEdit} onClick={() => set("send_all", true)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${form.send_all ? `${t.accent}60` : t.border}`, background: form.send_all ? t.accentLow : t.bg, color: form.send_all ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 13 }}>100% of balance</button>
+          <button disabled={isOnChainEdit} onClick={() => set("send_all", false)} style={{ padding: "11px 0", borderRadius: 11, border: `1px solid ${!form.send_all ? `${t.accent}60` : t.border}`, background: !form.send_all ? t.accentLow : t.bg, color: !form.send_all ? t.accent : t.textSub, cursor: isOnChainEdit ? "not-allowed" : "pointer", opacity: isOnChainEdit ? 0.5 : 1, fontWeight: 800, fontSize: 13 }}>Specific amount</button>
         </div>
         {!form.send_all && <input disabled={isOnChainEdit} style={{ ...inp, opacity: isOnChainEdit ? 0.5 : 1 }} type="number" min="0" step="any" value={form.amount} placeholder="Amount in USDC" onChange={(e) => set("amount", e.target.value)} />}
         <label style={lbl}>BACKUP WALLET ADDRESS</label>
@@ -483,8 +572,8 @@ function SwitchModal({ onClose, onSubmit, initialSwitch, t, isConnected }) {
         <label style={lbl}>PERSONAL MESSAGE TO RECIPIENT</label>
         <textarea style={{ ...inp, minHeight: 90, lineHeight: 1.6, resize: "none" }} value={form.note} placeholder="A note for whoever receives this — optional." onChange={(e) => set("note", e.target.value)} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginTop: 22 }}>
-          <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: "1px solid rgba(255,255,255,0.07)", background: "transparent", color: "rgba(255,255,255,0.35)", cursor: "pointer", fontWeight: 750 }}>Cancel</button>
-          <button onClick={submit} style={{ padding: 13, borderRadius: 12, border: "none", background: ok ? "linear-gradient(135deg, #00D4A8, #6B7FFF)" : "rgba(255,255,255,0.05)", color: ok ? "#000" : "rgba(255,255,255,0.18)", cursor: ok ? "pointer" : "default", fontWeight: 900, boxShadow: ok ? "0 4px 20px rgba(0,212,168,0.22)" : "none", transition: "all 0.2s" }}>
+          <button onClick={onClose} style={{ padding: 13, borderRadius: 12, border: `1px solid ${t.border}`, background: "transparent", color: t.textSub, cursor: "pointer", fontWeight: 750 }}>Cancel</button>
+          <button onClick={submit} style={{ padding: 13, borderRadius: 12, border: "none", background: ok ? "linear-gradient(135deg, #00D4A8, #6B7FFF)" : t.surfaceUp, color: ok ? "#000" : t.textMuted, cursor: ok ? "pointer" : "default", fontWeight: 900, boxShadow: ok ? "0 4px 20px rgba(0,212,168,0.22)" : "none", transition: "all 0.2s" }}>
             {saving ? "Deploying on-chain..." : initialSwitch ? "Save changes" : "Deploy backup plan"}
           </button>
         </div>
@@ -549,6 +638,8 @@ export default function DeadSwitch() {
   const [showHowIt, setShowHowIt] = useState(false);
   const [editingSwitch, setEditingSwitch] = useState(null);
   const [alertMsg, setAlertMsg] = useState(null);
+  const [subscription, setSubscription] = useState(null);
+  const [subscribing, setSubscribing] = useState(null);
   const [now, setNow] = useState(null);
   const [width, setWidth] = useState(1024);
   const t = dark ? D : L;
@@ -586,6 +677,48 @@ export default function DeadSwitch() {
     return () => { cancelAnimationFrame(frame); clearInterval(tick); window.removeEventListener("resize", resize); };
   }, []);
 
+  const loadSubscription = useCallback(async () => {
+    if (!address || !publicClient || !CONTRACT_ADDRESS) {
+      setSubscription(null);
+      return;
+    }
+
+    try {
+      const [sub, activeCount] = await Promise.all([
+        publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "getSubscription",
+          args: [address],
+        }),
+        publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "activeSwitchCount",
+          args: [address],
+        }),
+      ]);
+
+      setSubscription({
+        tier: Number(sub[0]),
+        expiresAt: Number(sub[1]),
+        maxSwitches: Number(sub[2]) > 1000000 ? YEARLY_MAX_SWITCHES : Number(sub[2]),
+        maxTimer: Number(sub[3]),
+        activeSwitchCount: Number(activeCount),
+      });
+    } catch (err) {
+      console.error("Subscription load error:", err);
+      setSubscription(null);
+    }
+  }, [address, publicClient]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadSubscription();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadSubscription]);
+
   const isMobile = width < 700;
   const isTablet = width < 980;
   const px = isMobile ? 18 : width < 1180 ? 28 : 40;
@@ -599,6 +732,46 @@ export default function DeadSwitch() {
 
   function showToast(msg, timeout = 3600) { setAlertMsg(msg); setTimeout(() => setAlertMsg(null), timeout); }
   async function handleSignOut() { await supabase.auth.signOut(); showToast("Signed out"); }
+
+  async function subscribeToTier(tier) {
+    if (tier.id === 0) {
+      showToast("Free plan is active by default");
+      return;
+    }
+    if (!CONTRACT_ADDRESS) return showToast("Contract address is missing.");
+    if (!isConnected || !walletClient || !publicClient) return showToast("Connect your wallet to subscribe");
+
+    try {
+      setSubscribing(tier.id);
+      const price = parseUnits(String(tier.price), 6);
+
+      showToast(`Approve ${tier.price} USDC for ${tier.name}...`);
+      const approveHash = await walletClient.writeContract({
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [CONTRACT_ADDRESS, price],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      showToast(`Activating ${tier.name} plan...`);
+      const hash = await walletClient.writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: "subscribe",
+        args: [tier.id],
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      await loadSubscription();
+      showToast(`${tier.name} plan activated`);
+    } catch (err) {
+      console.error("Subscription error:", err);
+      showToast("Subscription failed — nothing was changed", 5200);
+    } finally {
+      setSubscribing(null);
+    }
+  }
 
   async function sendSwitchEmail(sw, type = "warning") {
     if (!sw.email) return { ok: true };
@@ -614,6 +787,10 @@ export default function DeadSwitch() {
     const timerSeconds = timerUnit === "minutes" ? days * 60 : days * 86400;
     if (!CONTRACT_ADDRESS) return showToast("Contract address is missing.");
     if (!isConnected || !walletClient || !publicClient) return showToast("Connect your wallet before creating a backup plan");
+    if (subscription) {
+      if (subscription.activeSwitchCount >= subscription.maxSwitches) return showToast("You’ve reached your active switch limit. Upgrade or cancel an old switch.");
+      if (timerSeconds > subscription.maxTimer) return showToast(`This timer is above your plan limit. Current max: ${formatMaxTimer(subscription.maxTimer)}.`);
+    }
     let contract_id = null, tx_hash = null;
     try {
       let usdcAmount;
@@ -639,6 +816,7 @@ export default function DeadSwitch() {
     if (error) return showToast(error.message || "Failed to create switch");
     setSwitches((p) => [data, ...p]);
     setShowModal(false);
+    await loadSubscription();
     showToast(contract_id !== null ? `Deployed on-chain! Switch #${contract_id}` : "Backup plan created");
     if (data.email) sendSwitchEmail(data, "created");
   }
@@ -694,6 +872,7 @@ export default function DeadSwitch() {
     const { data, error } = await supabase.from("switches").update({ status: "cancelled" }).eq("id", sw.id).select().single();
     if (error) return showToast(error.message || "Failed to cancel plan");
     setSwitches((p) => p.map((s) => s.id === sw.id ? data : s));
+    await loadSubscription();
     if (sw.email) sendSwitchEmail({ ...sw, status: "cancelled" }, "cancelled");
     showToast("Backup plan cancelled");
   }
@@ -706,14 +885,14 @@ export default function DeadSwitch() {
   }
 
   useEffect(() => {
-    switches.forEach((sw) => {
+    timedSwitches.forEach((sw) => {
       if (!sw.email || sw.status !== "active" || Number(sw.remainingSeconds) > WARNING_SECONDS) return;
       const key = `deadswitch-warning-${sw.id}-${sw.remaining}`;
       if (localStorage.getItem(key)) return;
       localStorage.setItem(key, "sent");
       sendSwitchEmail(sw, "warning");
     });
-  }, [switches]);
+  }, [timedSwitches]);
 
   if (session === undefined) return (
     <div style={{ minHeight: "100vh", background: "#05060A", display: "grid", placeItems: "center" }}>
@@ -740,30 +919,30 @@ export default function DeadSwitch() {
       `}</style>
 
       {alertMsg && (
-        <div style={{ position: "fixed", right: 22, bottom: 22, zIndex: 300, display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderRadius: 16, background: "rgba(10,13,22,0.96)", color: "#F0F4FF", border: "1px solid rgba(0,212,168,0.18)", boxShadow: "0 20px 60px rgba(0,0,0,0.50)", fontSize: 13, fontWeight: 750, backdropFilter: "blur(20px)", animation: "fadeUp 0.3s ease" }}>
+        <div style={{ position: "fixed", right: 22, bottom: 22, zIndex: 300, display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderRadius: 16, background: t.surface, color: t.text, border: `1px solid ${t.accent}30`, boxShadow: t.shadow, fontSize: 13, fontWeight: 750, backdropFilter: "blur(20px)", animation: "fadeUp 0.3s ease" }}>
           <Bell size={14} color={t.accent} />{alertMsg}
         </div>
       )}
 
-      <nav style={{ position: "sticky", top: 0, zIndex: 100, padding: `0 ${px}px`, borderBottom: "1px solid rgba(255,255,255,0.05)", backdropFilter: "blur(24px)", background: dark ? "rgba(5,6,10,0.90)" : "rgba(244,246,242,0.90)" }}>
+      <nav style={{ position: "sticky", top: 0, zIndex: 100, padding: `0 ${px}px`, borderBottom: `1px solid ${t.border}`, backdropFilter: "blur(24px)", background: dark ? "rgba(5,6,10,0.90)" : "rgba(244,246,242,0.92)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", height: 68, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <DSLogo t={t} size={40} />
             <div>
               <p style={{ color: t.text, fontWeight: 900, margin: 0, fontSize: 15, letterSpacing: "-0.02em" }}>DeadSwitch</p>
-              {!isMobile && <p style={{ color: "rgba(255,255,255,0.22)", margin: "1px 0 0", fontSize: 10, letterSpacing: "0.06em", fontFamily: "'DM Mono',monospace" }}>{session.user.email}</p>}
+              {!isMobile && <p style={{ color: t.textMuted, margin: "1px 0 0", fontSize: 10, letterSpacing: "0.06em", fontFamily: "'DM Mono',monospace" }}>{session.user.email}</p>}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {!isMobile && (
-              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", color: "rgba(255,255,255,0.25)", fontSize: 11, fontFamily: "'DM Mono',monospace" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 11, fontFamily: "'DM Mono',monospace" }}>
                 <Clock size={11} />{now ? now.toLocaleTimeString() : "--:--:--"}
               </div>
             )}
             <div style={{ "--rk-radii-connectButton": "12px" }}>
               <ConnectButton showBalance={false} chainStatus={isMobile ? "none" : "icon"} accountStatus={isMobile ? "avatar" : "full"} />
             </div>
-            <button onClick={() => setDark((v) => !v)} style={{ width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 12, border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", color: "rgba(255,255,255,0.35)", cursor: "pointer" }}>
+            <button onClick={() => setDark((v) => !v)} style={{ width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 12, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, cursor: "pointer" }}>
               {dark ? <Sun size={15}/> : <Moon size={15}/>}
             </button>
             <IconButton onClick={handleSignOut} title="Sign out" t={t} tone="danger"><LogOut size={14} /></IconButton>
@@ -781,6 +960,16 @@ export default function DeadSwitch() {
       )}
 
       <main style={{ maxWidth: 1280, margin: "0 auto", padding: `${isMobile ? 36 : 64}px ${px}px 100px` }}>
+        <SubscriptionPanel
+          subscription={subscription}
+          onSubscribe={subscribeToTier}
+          subscribing={subscribing}
+          isConnected={isConnected}
+          t={t}
+          dark={dark}
+          isMobile={isMobile}
+        />
+
         <section style={{ display: "grid", gridTemplateColumns: isTablet ? "1fr" : "minmax(0,1fr) minmax(460px,580px)", gap: isTablet ? 32 : 64, alignItems: "start", animation: "fadeUp .5s ease" }}>
           <div style={{ maxWidth: isTablet ? 760 : 560, paddingTop: isTablet ? 0 : 14 }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 999, border: "1px solid rgba(0,212,168,0.18)", background: "rgba(0,212,168,0.06)", color: t.accent, fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", marginBottom: 28, fontFamily: "'DM Mono', monospace" }}>
@@ -793,7 +982,7 @@ export default function DeadSwitch() {
               should know<br />
               what to do.
             </h1>
-            <p style={{ color: dark ? "rgba(255,255,255,0.42)" : t.textSub, fontSize: isMobile ? 15 : 17, lineHeight: 1.72, maxWidth: 460, margin: "0 0 34px" }}>
+            <p style={{ color: t.textSub, fontSize: isMobile ? 15 : 17, lineHeight: 1.72, maxWidth: 460, margin: "0 0 34px" }}>
               Choose a backup wallet, set a check-in timer, and let DeadSwitch handle the rest — automatically, on-chain.
             </p>
             <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 10, marginBottom: 40, maxWidth: isMobile ? "100%" : 520 }}>
@@ -804,18 +993,18 @@ export default function DeadSwitch() {
                 <Plus size={16}/>Create my backup plan
               </button>
               <button onClick={() => setShowHowIt(true)}
-                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 18px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", color: dark ? "rgba(255,255,255,0.45)" : t.textSub, fontWeight: 800, cursor: "pointer", width: isMobile ? "100%" : "auto", transition: "all 0.2s", fontSize: 14 }}
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 18px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontWeight: 800, cursor: "pointer", width: isMobile ? "100%" : "auto", transition: "all 0.2s", fontSize: 14 }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor="rgba(0,212,168,0.28)"; e.currentTarget.style.color=t.accent; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor="rgba(255,255,255,0.07)"; e.currentTarget.style.color=dark?"rgba(255,255,255,0.45)":t.textSub; }}>
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor=t.border; e.currentTarget.style.color=t.textSub; }}>
                 <LockKeyhole size={15}/>How it works<ChevronRight size={14}/>
               </button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(3,1fr)" : "repeat(3,minmax(0,130px))", gap: 10, maxWidth: 430 }}>
               {[["Plans", active, t.accent], ["Due soon", warnings, warnings > 0 ? t.warn : t.accent], ["Network", "Arc", t.accent2]].map(([label, value, color]) => (
-                <div key={label} style={{ padding: "15px 14px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", position: "relative", overflow: "hidden" }}>
+                <div key={label} style={{ padding: "15px 14px", borderRadius: 16, border: `1px solid ${t.border}`, background: t.panel, position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${color}35, transparent)` }} />
                   <p style={{ color: color, fontSize: isMobile ? 24 : 28, fontWeight: 900, margin: 0, letterSpacing: "-0.04em", fontFamily: "'DM Mono', monospace" }}>{value}</p>
-                  <p style={{ color: "rgba(255,255,255,0.22)", fontSize: 9, fontWeight: 900, letterSpacing: "0.12em", margin: "5px 0 0", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace" }}>{String(label).toUpperCase()}</p>
+                  <p style={{ color: t.textMuted, fontSize: 9, fontWeight: 900, letterSpacing: "0.12em", margin: "5px 0 0", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace" }}>{String(label).toUpperCase()}</p>
                 </div>
               ))}
             </div>
@@ -828,7 +1017,7 @@ export default function DeadSwitch() {
         <section style={{ marginTop: isMobile ? 56 : 88 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 24 }}>
             <div>
-              <p style={{ color: dark ? "rgba(255,255,255,0.22)" : t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>YOUR PLANS</p>
+              <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>YOUR PLANS</p>
               <h2 style={{ color: t.text, fontSize: isMobile ? 24 : 30, margin: 0, letterSpacing: "-0.04em", fontWeight: 900 }}>Backup plans</h2>
             </div>
             <button onClick={() => { setEditingSwitch(null); setShowModal(true); }}
@@ -837,7 +1026,7 @@ export default function DeadSwitch() {
             </button>
           </div>
           {loading ? (
-            <div style={{ padding: 60, textAlign: "center", color: dark ? "rgba(255,255,255,0.18)" : t.textSub, fontFamily: "'DM Mono', monospace", fontSize: 11, letterSpacing: "0.10em" }}>LOADING...</div>
+            <div style={{ padding: 60, textAlign: "center", color: t.textSub, fontFamily: "'DM Mono', monospace", fontSize: 11, letterSpacing: "0.10em" }}>LOADING...</div>
           ) : activeSwitches.length ? (
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: 14 }}>
               {activeSwitches.map((sw) => (
@@ -845,11 +1034,11 @@ export default function DeadSwitch() {
               ))}
             </div>
           ) : (
-            <div style={{ textAlign: "center", padding: "80px 20px", borderRadius: 24, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)", position: "relative", overflow: "hidden" }}>
+            <div style={{ textAlign: "center", padding: "80px 20px", borderRadius: 24, border: `1px solid ${t.border}`, background: t.panel, position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 50% 50%, rgba(0,212,168,0.03), transparent 70%)", pointerEvents: "none" }} />
-              <Shield size={38} color="rgba(255,255,255,0.10)" />
-              <h3 style={{ color: dark ? "rgba(255,255,255,0.55)" : t.text, margin: "18px 0 8px", fontSize: 20, fontWeight: 900, letterSpacing: "-0.02em" }}>No backup plans yet</h3>
-              <p style={{ color: dark ? "rgba(255,255,255,0.22)" : t.textSub, margin: "0 0 24px", fontSize: 14 }}>Create your first plan and let DeadSwitch start watching.</p>
+              <Shield size={38} color={t.textMuted} />
+              <h3 style={{ color: t.text, margin: "18px 0 8px", fontSize: 20, fontWeight: 900, letterSpacing: "-0.02em" }}>No backup plans yet</h3>
+              <p style={{ color: t.textSub, margin: "0 0 24px", fontSize: 14 }}>Create your first plan and let DeadSwitch start watching.</p>
               <button onClick={() => { setEditingSwitch(null); setShowModal(true); }}
                 style={{ padding: "12px 20px", borderRadius: 13, border: "none", background: "linear-gradient(135deg, #00D4A8, #6B7FFF)", color: "#000", cursor: "pointer", fontWeight: 900, fontSize: 13, boxShadow: "0 4px 20px rgba(0,212,168,0.18)" }}>
                 Create backup plan
@@ -861,41 +1050,41 @@ export default function DeadSwitch() {
         <section style={{ marginTop: isMobile ? 44 : 60 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 20 }}>
             <div>
-              <p style={{ color: dark ? "rgba(255,255,255,0.22)" : t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>HISTORY</p>
+              <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", margin: "0 0 8px", fontFamily: "'DM Mono', monospace" }}>HISTORY</p>
               <h2 style={{ color: t.text, fontSize: isMobile ? 20 : 26, margin: 0, letterSpacing: "-0.04em", fontWeight: 900 }}>Executed & cancelled</h2>
             </div>
-            <span style={{ color: dark ? "rgba(255,255,255,0.18)" : t.textMuted, fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{historySwitches.length} archived</span>
+            <span style={{ color: t.textMuted, fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{historySwitches.length} archived</span>
           </div>
           {historySwitches.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {historySwitches.map((sw) => (
-                <div key={sw.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
+                <div key={sw.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: sw.status === "triggered" ? "rgba(0,212,168,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${sw.status === "triggered" ? "rgba(0,212,168,0.18)" : "rgba(255,255,255,0.05)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {sw.status === "triggered" ? <Zap size={14} color={t.accent} /> : <X size={14} color="rgba(255,255,255,0.22)" />}
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: sw.status === "triggered" ? t.accentLow : t.surfaceUp, border: `1px solid ${sw.status === "triggered" ? `${t.accent}30` : t.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {sw.status === "triggered" ? <Zap size={14} color={t.accent} /> : <X size={14} color={t.textMuted} />}
                     </div>
                     <div>
                       <p style={{ color: t.text, fontWeight: 800, fontSize: 14, margin: 0, letterSpacing: "-0.01em" }}>{sw.label}</p>
-                      <p style={{ color: "rgba(255,255,255,0.22)", fontSize: 11, margin: "3px 0 0", fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
+                      <p style={{ color: t.textSub, fontSize: 11, margin: "3px 0 0", fontFamily: "'DM Mono', monospace" }}>→ {truncateWallet(sw.destination)}</p>
                     </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
                     <StatusPill status={sw.status} t={t} />
-                    <p style={{ color: "rgba(255,255,255,0.18)", fontSize: 10, margin: "6px 0 0", fontFamily: "'DM Mono', monospace" }}>{new Date(sw.created_at).toLocaleDateString()}</p>
+                    <p style={{ color: t.textMuted, fontSize: 10, margin: "6px 0 0", fontFamily: "'DM Mono', monospace" }}>{new Date(sw.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ padding: "22px 20px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)", color: dark ? "rgba(255,255,255,0.18)" : t.textSub, fontSize: 11, fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
+            <div style={{ padding: "22px 20px", borderRadius: 14, border: `1px solid ${t.border}`, background: t.panel, color: t.textSub, fontSize: 11, fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
               NO HISTORY YET
             </div>
           )}
         </section>
       </main>
 
-      <footer style={{ padding: `20px ${px}px`, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-        <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", color: dark ? "rgba(255,255,255,0.15)" : t.textMuted, fontSize: 10, fontFamily: "'DM Mono',monospace", letterSpacing: "0.08em" }}>
+      <footer style={{ padding: `20px ${px}px`, borderTop: `1px solid ${t.border}` }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", color: t.textMuted, fontSize: 10, fontFamily: "'DM Mono',monospace", letterSpacing: "0.08em" }}>
           <span>DEADSWITCH</span>
           <span>ARC TESTNET · USDC · CIRCLE</span>
         </div>
