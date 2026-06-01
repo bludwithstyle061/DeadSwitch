@@ -22,10 +22,10 @@ DeadSwitch solves that.
 
 ## How It Works
 
-1. **Create a backup plan** — Set a destination wallet, pick a check-in timer (2 days to 365), and deposit USDC into the vault
+1. **Create a backup plan** — Set a destination wallet, pick a check-in timer, and deposit USDC into the vault
 2. **Check in regularly** — One tap resets the clock. As long as you check in, nothing happens
 3. **Go silent — it activates** — If you stop checking in, the contract automatically sends your USDC to your backup address
-4. **Get warned before it fires** — Add your email and DeadSwitch warns you 7 days before your timer expires
+4. **Get warned before it fires** — Add your email and DeadSwitch warns you when the deadline is close
 
 ---
 
@@ -70,14 +70,33 @@ Explorer: https://testnet.arcscan.app/address/0xa5c109Bfc654fC94B5714f8504a74458
 
 | Function | Description |
 |---|---|
-| `createSwitch(backup, amount, days)` | Deposits USDC and creates a timed vault |
-| `checkIn(id, days)` | Resets the timer — proves you're still alive |
+| `subscribe(tier)` | Pays USDC to activate Monthly, 6 Month, or Yearly access |
+| `getSubscription(user)` | Returns tier, expiry, active switch limit, and max timer |
+| `createSwitch(backup, amount, durationSeconds)` | Deposits USDC and creates a timed vault |
+| `checkIn(id, durationSeconds)` | Resets the timer — proves you're still alive |
 | `execute(id)` | Releases USDC to backup wallet after timer expires |
 | `cancel(id)` | Owner withdraws USDC and cancels the plan |
 | `checkUpkeep()` | Chainlink Automation compatible — checks for expired switches |
 | `performUpkeep()` | Chainlink Automation compatible — executes expired switches |
 
 The contract is fully **Chainlink Automation ready**. Once Chainlink deploys on Arc mainnet, upkeep registration will replace the current cron-based execution with fully decentralized automation.
+
+---
+
+## Subscription Tiers
+
+Subscriptions are paid directly on-chain in USDC. The frontend opens a plan overlay on first login, from the navbar plan badge, and whenever a user hits their tier limits.
+
+| Tier | Price | Duration | Active switches | Max timer |
+|---|---:|---:|---:|---:|
+| Free | 0 USDC | Forever | 1 | 30 days |
+| Monthly | 15 USDC | 30 days | 2 | 90 days |
+| 6 Month | 50 USDC | 180 days | 5 | 180 days |
+| Yearly | 150 USDC | 365 days | Unlimited | 365 days |
+
+`Active switches` means concurrent live switches. When a switch is executed or cancelled, that slot opens again.
+
+There is currently **no platform fee on vault deposits**. Subscription payments are sent to the configured `platformWallet`; vaulted USDC remains in the contract until the switch is checked in, executed, or cancelled.
 
 ---
 
@@ -126,11 +145,26 @@ npm run dev
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-NEXT_PUBLIC_CONTRACT_ADDRESS=0xCfc32d97124275422112D62bF55f4e72D0D88572
+NEXT_PUBLIC_CONTRACT_ADDRESS=0xa5c109Bfc654fC94B5714f8504a7445839C4eEe5
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 RESEND_API_KEY=
 CRON_SECRET=
 EXECUTOR_PRIVATE_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
+
+### Supabase Schema Notes
+
+The `switches` table needs the fields used by the app and cron worker, including the newer timer unit support:
+
+```sql
+alter table switches
+add column if not exists timer_unit text default 'days',
+add column if not exists contract_id text,
+add column if not exists tx_hash text;
+```
+
+`timer_unit` is required because the app supports both day timers and minute timers for demos/testing.
 
 ---
 
@@ -147,8 +181,15 @@ npx hardhat compile
 npx hardhat run scripts/deploy.js --network arcTestnet
 
 # Verify on explorer
-npx hardhat verify --network arcTestnet YOUR_CONTRACT_ADDRESS "0x3600000000000000000000000000000000000000"
+npx hardhat verify --network arcTestnet YOUR_CONTRACT_ADDRESS "0x3600000000000000000000000000000000000000" "YOUR_PLATFORM_WALLET_ADDRESS"
 ```
+
+The constructor takes:
+
+1. `USDC_ADDRESS` — Arc Testnet USDC: `0x3600000000000000000000000000000000000000`
+2. `PLATFORM_WALLET` — the public wallet address that receives subscription payments
+
+After deployment, update `NEXT_PUBLIC_CONTRACT_ADDRESS` locally and in Vercel.
 
 ---
 
@@ -156,13 +197,16 @@ npx hardhat verify --network arcTestnet YOUR_CONTRACT_ADDRESS "0x360000000000000
 
 - [x] Smart contract deployed on Arc Testnet
 - [x] USDC vault with approve + transferFrom flow
+- [x] Subscription tiers in USDC
+- [x] Free / paid tier limits for active switches and max timer length
 - [x] Frontend with wallet connection
-- [x] Email alerts at 7 days remaining
+- [x] Email alerts when a switch is close to execution
 - [x] Supabase auth — each user sees only their own switches
 - [x] Chainlink-ready contract (checkUpkeep / performUpkeep)
 - [x] Vercel cron job for automated execution
+- [x] Multiple switches per user on paid tiers
 - [ ] Chainlink Automation registration (pending Arc support)
-- [ ] Multiple switches per user with staggered timers
+- [ ] Circle Programmable Wallets / no-MetaMask onboarding
 - [ ] Arc mainnet deployment
 - [ ] Grant application to Arc ecosystem
 
