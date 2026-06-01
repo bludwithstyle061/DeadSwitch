@@ -215,7 +215,7 @@ After deployment, update `NEXT_PUBLIC_CONTRACT_ADDRESS` locally and in Vercel.
 ## Builder
 
 Built by **[@bludwithstyle](https://twitter.com/bludwithstyle)** — building in public from Lagos 
-
+DeadSwitch Profile ** https://x.com/_deadswitch
 ---
 
 ## Builder Notes
@@ -227,6 +227,3 @@ Built by **[@bludwithstyle](https://twitter.com/bludwithstyle)** — building in
 **Minutes timer:** Added specifically so users can verify the full execution flow in 1-2 minutes instead of waiting days. Essential for testing and demoing the automation.
 
 
-## License
-
-MIT
