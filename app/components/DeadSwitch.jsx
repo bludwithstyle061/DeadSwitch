@@ -63,19 +63,29 @@ function durationSeconds(sw) {
   const value = Number(sw?.days || 1);
   return timerUnit(sw) === "minutes" ? value * 60 : value * 86400;
 }
-function secondsLeft(sw, now = new Date()) {
+function remainingValueFromSeconds(seconds, unit) {
+  return unit === "minutes" ? Math.ceil(Number(seconds) / 60) : Math.ceil(Number(seconds) / 86400);
+}
+function secondsLeft(sw, now = new Date(), chainTimers = {}) {
   if (!sw || sw.status === "triggered" || sw.status === "cancelled") return 0;
   if (sw.status === "paused") return timerUnit(sw) === "minutes" ? Math.max(0, Number(sw.remaining || 0)) * 60 : Math.max(0, Number(sw.remaining || 0)) * 86400;
+  const chainTimer = sw.contract_id !== null && sw.contract_id !== undefined ? chainTimers[String(sw.contract_id)] : null;
+  if (chainTimer) {
+    const elapsedSinceSync = Math.max(0, Math.floor((now.getTime() - chainTimer.syncedAt) / 1000));
+    return Math.max(0, Number(chainTimer.seconds || 0) - elapsedSinceSync);
+  }
   const duration = durationSeconds(sw);
   const startedAt = sw.created_at ? new Date(sw.created_at).getTime() : now.getTime();
   const elapsed = Math.max(0, Math.floor((now.getTime() - startedAt) / 1000));
   return Math.max(0, duration - elapsed);
 }
-function withLiveTimer(sw, now) {
-  const remainingSeconds = secondsLeft(sw, now);
+function withLiveTimer(sw, now, chainTimers) {
+  const remainingSeconds = secondsLeft(sw, now, chainTimers);
   const unit = timerUnit(sw);
-  const remaining = unit === "minutes" ? Math.ceil(remainingSeconds / 60) : Math.ceil(remainingSeconds / 86400);
-  const status = sw.status === "active" && remainingSeconds <= WARNING_SECONDS ? "warning" : sw.status;
+  const remaining = remainingValueFromSeconds(remainingSeconds, unit);
+  const status = sw.status === "active" || sw.status === "warning"
+    ? remainingSeconds <= WARNING_SECONDS ? "warning" : "active"
+    : sw.status;
   return { ...sw, remaining, remainingSeconds, status, timer_unit: unit };
 }
 function timerLabel(sw) {
@@ -661,6 +671,7 @@ export default function DeadSwitch() {
   const [showSubscription, setShowSubscription] = useState(false);
   const [subscriptionPrompt, setSubscriptionPrompt] = useState("");
   const [subscribing, setSubscribing] = useState(null);
+  const [chainTimers, setChainTimers] = useState({});
   const [now, setNow] = useState(null);
   const [width, setWidth] = useState(1024);
   const t = dark ? D : L;
@@ -768,7 +779,12 @@ export default function DeadSwitch() {
   const isTablet = width < 980;
   const px = isMobile ? 18 : width < 1180 ? 28 : 40;
   const heroTitleSize = isMobile ? "clamp(38px,11vw,54px)" : isTablet ? "clamp(50px,7.5vw,68px)" : "clamp(56px,5vw,74px)";
-  const timedSwitches = useMemo(() => switches.map((sw) => withLiveTimer(sw, now || new Date())), [switches, now]);
+  const onChainTimerKey = useMemo(() => switches
+    .filter((sw) => sw.contract_id !== null && sw.contract_id !== undefined && sw.status !== "cancelled" && sw.status !== "triggered")
+    .map((sw) => String(sw.contract_id))
+    .sort()
+    .join("|"), [switches]);
+  const timedSwitches = useMemo(() => switches.map((sw) => withLiveTimer(sw, now || new Date(), chainTimers)), [switches, now, chainTimers]);
   const activeSwitches = useMemo(() => timedSwitches.filter((s) => s.status !== "cancelled" && s.status !== "triggered"), [timedSwitches]);
   const historySwitches = useMemo(() => timedSwitches.filter((s) => s.status === "cancelled" || s.status === "triggered"), [timedSwitches]);
   const active = activeSwitches.filter((s) => s.status !== "paused").length;
@@ -797,6 +813,46 @@ export default function DeadSwitch() {
     setEditingSwitch(null);
     setShowModal(true);
   }
+
+  useEffect(() => {
+    if (!publicClient || !CONTRACT_ADDRESS || !onChainTimerKey) return undefined;
+
+    let cancelled = false;
+    const contractIds = onChainTimerKey.split("|").filter(Boolean);
+
+    async function syncChainTimers() {
+      try {
+        const results = await Promise.all(contractIds.map(async (contractId) => {
+          const seconds = await publicClient.readContract({
+            address: CONTRACT_ADDRESS,
+            abi: CONTRACT_ABI,
+            functionName: "timeRemaining",
+            args: [BigInt(contractId)],
+          });
+          return [contractId, Number(seconds)];
+        }));
+
+        if (cancelled) return;
+        const syncedAt = Date.now();
+        setChainTimers((prev) => {
+          const next = { ...prev };
+          results.forEach(([contractId, seconds]) => {
+            next[contractId] = { seconds, syncedAt };
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error("Timer sync error:", err);
+      }
+    }
+
+    syncChainTimers();
+    const timer = setInterval(syncChainTimers, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [publicClient, onChainTimerKey]);
 
   async function subscribeToTier(tier) {
     if (tier.id === 0) {
