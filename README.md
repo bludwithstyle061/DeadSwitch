@@ -215,7 +215,12 @@ After deployment, update `NEXT_PUBLIC_CONTRACT_ADDRESS` locally and in Vercel.
 ## Builder
 
 Built by **[@bludwithstyle](https://twitter.com/bludwithstyle)** — building in public from Lagos 
-DeadSwitch Profile ** https://x.com/_deadswitch
+
+---
+
+Social pages
+X Account ** https://x.com/_deadswitch
+
 ---
 
 ## Builder Notes
