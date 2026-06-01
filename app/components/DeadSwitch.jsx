@@ -5,7 +5,7 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConnectButton, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount, useBalance, useWalletClient, usePublicClient } from "wagmi";
-import { parseEventLogs, parseUnits } from "viem";
+import { formatUnits, parseEventLogs, parseUnits } from "viem";
 import {
   AlertTriangle, Bell, ChevronRight, Clock, LockKeyhole,
   LogOut, Mail, Moon, Pause, Pencil, Play, Plus,
@@ -41,6 +41,8 @@ const L = {
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 const USDC_ABI = [
   { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable", type: "function" },
+  { inputs: [{ name: "account", type: "address" }], name: "balanceOf", outputs: [{ name: "", type: "uint256" }], stateMutability: "view", type: "function" },
+  { inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], name: "allowance", outputs: [{ name: "", type: "uint256" }], stateMutability: "view", type: "function" },
 ];
 const TIMER_PRESETS = { minutes: [1, 2, 5, 10, 30, 60], days: [2, 5, 30, 60, 90, 180] };
 const WARNING_SECONDS = 2 * 60;
@@ -98,6 +100,11 @@ function formatMaxTimer(seconds) {
   if (!value) return "30 days";
   const days = Math.round(value / 86400);
   return `${days} day${days === 1 ? "" : "s"}`;
+}
+function formatUsdc(value) {
+  return Number(formatUnits(value || 0n, 6)).toLocaleString(undefined, {
+    maximumFractionDigits: 6,
+  });
 }
 function statusMeta(status, t) {
   const map = {
@@ -808,14 +815,35 @@ export default function DeadSwitch() {
       setSubscribing(tier.id);
       const price = parseUnits(String(tier.price), 6);
 
-      showToast(`Approve ${tier.price} USDC for ${tier.name}...`);
-      const approveHash = await walletClient.writeContract({
+      const usdcBalance = await publicClient.readContract({
         address: USDC_ADDRESS,
         abi: USDC_ABI,
-        functionName: "approve",
-        args: [CONTRACT_ADDRESS, price],
+        functionName: "balanceOf",
+        args: [address],
       });
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      if (usdcBalance < price) {
+        return showToast(`Not enough USDC. ${tier.name} costs ${tier.price} USDC, but this wallet has ${formatUsdc(usdcBalance)} USDC.`, 6200);
+      }
+
+      const allowance = await publicClient.readContract({
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "allowance",
+        args: [address, CONTRACT_ADDRESS],
+      });
+
+      if (allowance < price) {
+        showToast(`Approve ${tier.price} USDC for ${tier.name}...`);
+        const approveHash = await walletClient.writeContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "approve",
+          args: [CONTRACT_ADDRESS, price],
+        });
+        const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        if (approveReceipt.status !== "success") throw new Error("USDC approval failed");
+      }
 
       showToast(`Activating ${tier.name} plan...`);
       const hash = await walletClient.writeContract({
@@ -824,7 +852,8 @@ export default function DeadSwitch() {
         functionName: "subscribe",
         args: [tier.id],
       });
-      await publicClient.waitForTransactionReceipt({ hash });
+      const subscribeReceipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (subscribeReceipt.status !== "success") throw new Error("Subscription transaction failed");
 
       await loadSubscription();
       if (session?.user?.id) localStorage.setItem(`deadswitch-plan-picked-${session.user.id}`, tier.key);
